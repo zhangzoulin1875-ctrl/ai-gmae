@@ -1,0 +1,65 @@
+# Render Blueprint - WWI Strategy Game
+# https://render.com/docs/blueprint-spec
+
+databases:
+  - name: wwi-game-db
+    plan: free
+    databaseName: wwi_game
+    user: wwi_game_user
+
+services:
+  # Backend API + WebSocket server
+  - type: web
+    name: wwi-game-server
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: npm install && npm run build:shared && npx prisma generate --schema=packages/server/src/prisma/schema.prisma
+    startCommand: npx tsx packages/server/src/index.ts
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: wwi-game-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DISCORD_CLIENT_ID
+        sync: false
+      - key: DISCORD_CLIENT_SECRET
+        sync: false
+      - key: DISCORD_REDIRECT_URI
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        value: https://api.openai.com/v1
+      - key: GOOGLE_AI_API_KEY
+        sync: false
+
+  # Frontend static site
+  - type: web
+    name: wwi-game-client
+    runtime: static
+    plan: free
+    rootDir: .
+    buildCommand: npm install && npm run build:shared && npm run build --workspace=packages/client
+    staticPublishDir: packages/client/dist
+    pullRequestPreviewsEnabled: false
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: wwi-game-server
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: VITE_SOCKET_URL
+        fromService:
+          type: web
+          name: wwi-game-server
+          envVarKey: RENDER_EXTERNAL_URL

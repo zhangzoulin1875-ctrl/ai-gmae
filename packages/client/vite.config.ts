@@ -19,4 +19,9 @@ export default defineConfig({
       },
     },
   },
+  // For production build, inject API base URL
+  define: {
+    'import.meta.env.VITE_API_URL': JSON.stringify(process.env.VITE_API_URL || ''),
+    'import.meta.env.VITE_SOCKET_URL': JSON.stringify(process.env.VITE_SOCKET_URL || ''),
+  },
 });
