@@ -222,7 +222,8 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('[WorldMap] MapLibre init failed:', err);
-      setMapError('地圖初始化失敗，請重新整理頁面。');
+      const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      setMapError(msg);
       return;
     }
 
