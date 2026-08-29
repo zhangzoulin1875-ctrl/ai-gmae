@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma.js';
-import { WWI_COUNTRIES, recruitCost } from '@wwi/shared';
+import { WWI_COUNTRIES, recruitCost, TechEffects, aggregateTechEffects } from '@wwi/shared';
 import { getTerritoryStats } from '../lib/territory-stats.js';
 import type { AIProvider } from '@wwi/shared';
 import { AIEngine } from './ai-engine.js';
@@ -22,6 +22,10 @@ interface Battle {
 const COUNTRY_NAMES: Record<string, string> = Object.fromEntries(
   WWI_COUNTRIES.map((c) => [c.id, c.nameZh])
 );
+
+function techFx(cs: any): TechEffects {
+  return (cs.techEffects || {}) as TechEffects;
+}
 
 export class TurnResolver {
   private aiPlayerService = new AIPlayerService();
@@ -236,6 +240,9 @@ export class TurnResolver {
             }
           }
           attackerForce += orderState.morale * 10;
+          // Tech: attackPct modifier
+          const atkFx = techFx(orderState);
+          if (atkFx.attackPct) attackerForce *= (1 + atkFx.attackPct / 100);
           // DEFEND posture reduces offensive capability
           if (defendCountries.has(order.countryId)) attackerForce *= 0.85;
 
@@ -265,9 +272,19 @@ export class TurnResolver {
             }
           }
           defenderForce += defenderState.morale * 100 + defenderState.stability * 50;
+          // Tech: defensePct modifier
+          const defFx = techFx(defenderState);
+          if (defFx.defensePct) defenderForce *= (1 + defFx.defensePct / 100);
           // DEFEND order: +30% defender force; FORTIFY: +20% (stacks)
-          if (defendCountries.has(defenderId)) defenderForce *= 1.3;
-          if (fortifyCountries.has(defenderId)) defenderForce *= 1.2;
+          // Tech: defendBonusPct / fortifyBonusPct stack on top
+          if (defendCountries.has(defenderId)) {
+            defenderForce *= 1.3;
+            if (defFx.defendBonusPct) defenderForce *= (1 + defFx.defendBonusPct / 100);
+          }
+          if (fortifyCountries.has(defenderId)) {
+            defenderForce *= 1.2;
+            if (defFx.fortifyBonusPct) defenderForce *= (1 + defFx.fortifyBonusPct / 100);
+          }
 
           const attackerWins = attackerForce > defenderForce * 0.6;
           const lossRatio = attackerWins ? 0.15 : 0.4;
@@ -324,11 +341,15 @@ export class TurnResolver {
           orderState.gold = Math.max(0, orderState.gold - 20);
           events.push(`${COUNTRY_NAMES[order.countryId] || order.countryId} 修築防禦工事`);
         } else if (order.type === 'MOVE') {
-          orderState.gold = Math.max(0, orderState.gold - 5);
+          const moveFx = techFx(orderState);
+          const moveCost = Math.round(5 * (1 + (moveFx.moveCostPct || 0) / 100));
+          orderState.gold = Math.max(0, orderState.gold - moveCost);
           orderState.morale = Math.min(100, orderState.morale + 1);
           events.push(`${COUNTRY_NAMES[order.countryId] || order.countryId} 調動部隊至前線陣地`);
         } else if (order.type === 'DIPLOMACY') {
-          orderState.stability = Math.min(100, orderState.stability + 2);
+          const dipFx = techFx(orderState);
+          const dipGain = Math.round(2 * (1 + (dipFx.diplomacyBonusPct || 0) / 100));
+          orderState.stability = Math.min(100, orderState.stability + dipGain);
           events.push(`${COUNTRY_NAMES[order.countryId] || order.countryId} 發起外交行動，穩定度提升`);
         }
       }
@@ -353,13 +374,29 @@ export class TurnResolver {
     // Economy & regen — dynamic, driven by currently-held territory
     // (area + population), not a fixed per-country snapshot.
     // Capturing enemy provinces increases future growth; losing territory
-    // decreases it. This composes with AI policy deltas applied above.
+    // decreases it. Tech-tree % modifiers are applied on top.
     for (const cs of stateMap.values()) {
       const { areaKm2, population } = getTerritoryStats(cs.territories);
+      const fx = techFx(cs);
+
+      // Tech point income: based on industrialization level.
+      //   base 50 + industry * 3 + population / 2_000_000 + areaKm2 / 50_000
+      //   A small country (industry 10, pop 5M, area 200k km²) → ~50 + 30 + 2.5 + 4 ≈ 87/turn
+      //   A great power (industry 40, pop 50M, area 500k km²) → 50 + 120 + 25 + 10 ≈ 205/turn
+      //   But the escalating unlock cost curve prevents rapid tree completion.
+      const techIncome = Math.round(50 + cs.industry * 3 + population / 2_000_000 + areaKm2 / 50_000);
+      cs.techPoints = (cs.techPoints || 0) + techIncome;
+
       // Gold: industry output + population tax base + minor land value
-      cs.gold += Math.round(cs.industry * 5 + population / 500_000 + areaKm2 / 500_000);
+      const baseGold = Math.round(cs.industry * 5 + population / 500_000 + areaKm2 / 500_000);
+      const goldMod = 1 + (fx.goldIncomePct || 0) / 100;
+      cs.gold += Math.round(baseGold * goldMod);
+
       // Manpower: population-driven natural growth + small base
-      cs.manpower += Math.round(population * 0.0005) + Math.floor(cs.manpower * 0.02) + 1000;
+      const baseMp = Math.round(population * 0.0005) + Math.floor(cs.manpower * 0.02) + 1000;
+      const mpMod = 1 + (fx.manpowerPct || 0) / 100;
+      cs.manpower += Math.round(baseMp * mpMod);
+
       // Morale: slow passive recovery
       cs.morale = Math.min(100, cs.morale + 1);
     }
@@ -372,6 +409,13 @@ export class TurnResolver {
       morale: cs.morale, gold: cs.gold, industry: cs.industry,
       manpower: cs.manpower, stability: cs.stability,
       territories: cs.territories, isAIControlled: cs.isAIControlled, playerId: cs.playerId,
+      // Tech tree carry-over
+      techPoints: cs.techPoints || 0,
+      unlockedTechIds: cs.unlockedTechIds || [],
+      politicalBranch: cs.politicalBranch || null,
+      techEffects: cs.techEffects || undefined as any,
+      customName: cs.customName || null,
+      hasRenamed: cs.hasRenamed || false,
     }));
     if (newStateRecords.length > 0) {
       await prisma.countryState.createMany({ data: newStateRecords });
@@ -478,14 +522,20 @@ export class TurnResolver {
         totalIndustry += cost.industry;
       }
 
-      if (state.gold < totalGold || state.manpower < totalManpower || state.industry < totalIndustry) {
+      // Tech: recruitCostPct modifies gold + industry cost (not manpower)
+      const rFx = (state.techEffects || {}) as any;
+      const rMod = 1 + ((rFx.recruitCostPct || 0) / 100);
+      const adjGold = Math.round(totalGold * rMod);
+      const adjIndustry = Math.round(totalIndustry * rMod);
+
+      if (state.gold < adjGold || state.manpower < totalManpower || state.industry < adjIndustry) {
         console.warn(`[TurnResolver] Recruit insufficient resources for ${order.countryId}`);
         continue;
       }
 
-      state.gold -= totalGold;
+      state.gold -= adjGold;
       state.manpower -= totalManpower;
-      state.industry -= totalIndustry;
+      state.industry -= adjIndustry;
 
       let countryStock = stockMap.get(order.countryId);
       if (!countryStock) { countryStock = new Map(); stockMap.set(order.countryId, countryStock); }

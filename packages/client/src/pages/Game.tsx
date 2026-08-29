@@ -10,6 +10,7 @@ import ErrorBoundary from '../components/ErrorBoundary';
 import RecruitPanel from '../components/RecruitPanel';
 import DivisionPanel from '../components/DivisionPanel';
 import PolicyPanel from '../components/PolicyPanel';
+import TechTreePanel from '../components/TechTreePanel';
 import NotificationBell from '../components/NotificationBell';
 import { getApiUrl, getSocketUrl, apiFetch } from '../lib/api';
 import { MilitaryState } from '../types/military';
@@ -34,6 +35,11 @@ interface CountryStateInfo {
   manpower: number;
   stability: number;
   isAIControlled: boolean;
+  techPoints?: number;
+  unlockedTechCount?: number;
+  politicalBranch?: string | null;
+  customName?: string | null;
+  hasRenamed?: boolean;
 }
 
 interface PlayerInfo {
@@ -52,7 +58,7 @@ interface GameState {
 }
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting';
-type TabType = 'orders' | 'recruit' | 'divisions' | 'policies' | 'workshop';
+type TabType = 'orders' | 'recruit' | 'divisions' | 'policies' | 'workshop' | 'tech';
 
 const Game: React.FC = () => {
   const { id: gameId } = useParams<{ id: string }>();
@@ -529,7 +535,9 @@ const Game: React.FC = () => {
   const getCountryName = (cid: string) => {
     if (!cid) return '未選擇';
     const c = WWI_COUNTRIES.find((x) => x.id === cid);
-    return c ? `${c.flagIcon} ${c.nameZh}` : cid;
+    const csInfo = state?.countryStates.find((cs) => cs.countryId === cid);
+    const displayName = csInfo?.customName || c?.nameZh || cid;
+    return c ? `${c.flagIcon} ${displayName}` : displayName;
   };
 
   const getCountryNameZh = (cid: string) => {
@@ -791,6 +799,14 @@ const Game: React.FC = () => {
                 onClick={() => setActiveTab('workshop')}
               >
                 ⚙️ 兵種工坊
+              </button>
+              <button
+                type="button"
+                className={activeTab === 'tech' ? 'btn-primary' : 'btn-secondary'}
+                style={{ padding: '0.5rem 1rem', fontSize: '0.9rem' }}
+                onClick={() => setActiveTab('tech')}
+              >
+                🔬 科技樹
               </button>
             </div>
 
@@ -1148,6 +1164,15 @@ const Game: React.FC = () => {
                       ))}
                     </div>
                   )}
+                </div>
+              </ErrorBoundary>
+            )}
+
+            {/* TAB 6: 科技樹 */}
+            {activeTab === 'tech' && gameId && (
+              <ErrorBoundary>
+                <div className="card">
+                  <TechTreePanel gameId={gameId || ''} refreshTrigger={notificationTrigger} />
                 </div>
               </ErrorBoundary>
             )}

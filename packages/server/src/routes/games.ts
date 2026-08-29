@@ -2,6 +2,9 @@ import { Router } from 'express';
 import { WWI_COUNTRIES } from '@wwi/shared';
 import { prisma } from '../lib/prisma.js';
 import { RuleBasedAI } from '../services/rule-based-ai.js';
+import { TECH_TREE, computeTechCost } from '@wwi/shared';
+import { validateCountryName } from '@wwi/shared';
+import { checkTechEligibility, aggregateTechEffects } from '../lib/tech-effects.js';
 import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
@@ -181,6 +184,11 @@ router.get('/:id/state', authMiddleware, async (req: any, res) => {
         manpower: cs.manpower,
         stability: cs.stability,
         isAIControlled: cs.isAIControlled,
+        techPoints: cs.techPoints,
+        unlockedTechCount: (cs.unlockedTechIds || []).length,
+        politicalBranch: cs.politicalBranch,
+        customName: cs.customName,
+        hasRenamed: cs.hasRenamed,
       })),
     });
   } catch (error: any) {
@@ -325,6 +333,152 @@ router.post('/:id/ai-suggest', authMiddleware, async (req: any, res) => {
     res.json({ success: true, suggestions: labeled });
   } catch (error: any) {
     console.error('[Games] ai-suggest error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/games/:id/tech — full tech tree + this country's progress
+router.get('/:id/tech', authMiddleware, async (req: any, res) => {
+  try {
+    const game = await prisma.gameRoom.findUnique({
+      where: { id: req.params.id },
+      include: { players: true },
+    });
+    if (!game) return res.status(404).json({ error: '找不到戰局' });
+
+    const player = game.players.find((p) => p.userId === req.user.id);
+    if (!player) return res.status(403).json({ error: '你未加入此戰局' });
+
+    const myState = await prisma.countryState.findFirst({
+      where: { gameId: game.id, countryId: player.countryId, turn: game.currentTurn },
+    });
+    if (!myState) return res.status(404).json({ error: '找不到你的國家狀態' });
+
+    const unlockedIds = myState.unlockedTechIds || [];
+    const nodes = TECH_TREE.map((node: any) => {
+      const elig = checkTechEligibility(node, unlockedIds, myState.politicalBranch, myState.techPoints);
+      return {
+        id: node.id,
+        nameZh: node.nameZh,
+        category: node.category,
+        tier: node.tier,
+        requires: node.requires,
+        politicalBranch: node.politicalBranch || null,
+        doctrineBranch: node.doctrineBranch || null,
+        unlocksRename: node.unlocksRename || false,
+        effectDescZh: node.effectDescZh,
+        flavorZh: node.flavorZh,
+        cost: elig.effectiveCost,
+        isUnlocked: unlockedIds.includes(node.id),
+        canUnlock: elig.canUnlock,
+        lockedReason: elig.reason || null,
+      };
+    });
+
+    res.json({
+      success: true,
+      techPoints: myState.techPoints,
+      unlockedTechIds: unlockedIds,
+      politicalBranch: myState.politicalBranch,
+      customName: myState.customName,
+      hasRenamed: myState.hasRenamed,
+      nodes,
+    });
+  } catch (error: any) {
+    console.error('[Games] tech list error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/games/:id/tech/:techId — unlock a tech node
+router.post('/:id/tech/:techId', authMiddleware, async (req: any, res) => {
+  try {
+    const game = await prisma.gameRoom.findUnique({
+      where: { id: req.params.id },
+      include: { players: true },
+    });
+    if (!game) return res.status(404).json({ error: '找不到戰局' });
+    if (game.status !== 'ACTIVE') return res.status(400).json({ error: '戰局不在進行中' });
+
+    const player = game.players.find((p) => p.userId === req.user.id);
+    if (!player) return res.status(403).json({ error: '你未加入此戰局' });
+
+    const node = TECH_TREE.find((t: any) => t.id === req.params.techId);
+    if (!node) return res.status(404).json({ error: '找不到此科技' });
+
+    const myState = await prisma.countryState.findFirst({
+      where: { gameId: game.id, countryId: player.countryId, turn: game.currentTurn },
+    });
+    if (!myState) return res.status(404).json({ error: '找不到你的國家狀態' });
+
+    const unlockedIds = myState.unlockedTechIds || [];
+    const elig = checkTechEligibility(node, unlockedIds, myState.politicalBranch, myState.techPoints);
+    if (!elig.canUnlock) return res.status(400).json({ error: elig.reason || '無法解鎖此科技' });
+
+    const newUnlockedIds = [...unlockedIds, node.id];
+    const newEffects = aggregateTechEffects(newUnlockedIds);
+
+    const data: any = {
+      techPoints: myState.techPoints - elig.effectiveCost,
+      unlockedTechIds: newUnlockedIds,
+      techEffects: newEffects,
+    };
+
+    // One-time flat effects applied directly now
+    if (node.effects.industryFlat) data.industry = myState.industry + node.effects.industryFlat;
+    if (node.effects.moraleFlat) data.morale = Math.max(0, Math.min(100, myState.morale + node.effects.moraleFlat));
+    if (node.effects.stabilityFlat) data.stability = Math.max(0, Math.min(100, myState.stability + node.effects.stabilityFlat));
+
+    // Political branch commitment (first political tech locks the branch)
+    if (node.category === 'political' && !myState.politicalBranch) {
+      data.politicalBranch = node.politicalBranch;
+    }
+
+    await prisma.countryState.update({ where: { id: myState.id }, data });
+
+    res.json({ success: true, message: `已解鎖「${node.nameZh}」`, techPoints: data.techPoints, unlockedTechIds: newUnlockedIds });
+  } catch (error: any) {
+    console.error('[Games] tech unlock error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/games/:id/rename — rename own country (requires an unlocked
+// political tech with unlocksRename=true; usable exactly once).
+router.post('/:id/rename', authMiddleware, async (req: any, res) => {
+  try {
+    const game = await prisma.gameRoom.findUnique({
+      where: { id: req.params.id },
+      include: { players: true },
+    });
+    if (!game) return res.status(404).json({ error: '找不到戰局' });
+    if (game.status !== 'ACTIVE') return res.status(400).json({ error: '戰局不在進行中' });
+
+    const player = game.players.find((p) => p.userId === req.user.id);
+    if (!player) return res.status(403).json({ error: '你未加入此戰局' });
+
+    const myState = await prisma.countryState.findFirst({
+      where: { gameId: game.id, countryId: player.countryId, turn: game.currentTurn },
+    });
+    if (!myState) return res.status(404).json({ error: '找不到你的國家狀態' });
+
+    if (myState.hasRenamed) return res.status(400).json({ error: '本局已使用過改名機會' });
+
+    const unlockedIds = myState.unlockedTechIds || [];
+    const hasRenameUnlock = TECH_TREE.some((t: any) => t.unlocksRename && unlockedIds.includes(t.id));
+    if (!hasRenameUnlock) return res.status(400).json({ error: '尚未解鎖可更改國名的政治科技' });
+
+    const check = validateCountryName(req.body?.name);
+    if (!check.valid) return res.status(400).json({ error: check.error });
+
+    await prisma.countryState.update({
+      where: { id: myState.id },
+      data: { customName: check.sanitized, hasRenamed: true },
+    });
+
+    res.json({ success: true, message: '國名已更新', customName: check.sanitized });
+  } catch (error: any) {
+    console.error('[Games] rename error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });

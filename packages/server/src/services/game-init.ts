@@ -104,6 +104,12 @@ export async function initializeGameCountries(gameId: string): Promise<void> {
       territories: getProvincesForCountry(c.id),
       isAIControlled: false,
       playerId: null,
+      techPoints: 50, // starting tech points
+      unlockedTechIds: [],
+      politicalBranch: null,
+      techEffects: undefined as any,
+      customName: null,
+      hasRenamed: false,
     };
   });
 

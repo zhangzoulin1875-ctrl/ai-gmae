@@ -66,6 +66,13 @@ model CountryState {
   territories   String[]
   isAIControlled Boolean @default(false)
   playerId      String?
+  // Tech tree
+  techPoints      Int      @default(0)
+  unlockedTechIds String[] @default([])
+  politicalBranch String?  // democracy | communism | fascism | null
+  techEffects     Json?    // cached aggregate of ongoing % modifiers from unlocked techs
+  customName      String?  // player-set country name override (via political tech unlock)
+  hasRenamed      Boolean  @default(false)
   createdAt     DateTime @default(now())
   game          GameRoom @relation(fields: [gameId], references: [id])
 
