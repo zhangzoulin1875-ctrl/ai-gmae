@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import {
   GameRoom, Order, OrderType, WWI_COUNTRIES, CountryDefinition,
-  SIDE_LABELS_ZH, generateWorldMap, TerritoryGeometry,
+  SIDE_LABELS_ZH,
 } from '@wwi/shared';
-import GameMap from '../components/GameMap';
+import WorldMap from '../components/WorldMap';
 import { getApiUrl, getSocketUrl } from '../lib/api';
 
 const ORDER_TYPE_LABELS: Record<OrderType, string> = {
@@ -66,15 +66,13 @@ const Game: React.FC = () => {
   // Submitted orders this turn
   const [myOrders, setMyOrders] = useState<Order[]>([]);
   const [message, setMessage] = useState<string | null>(null);
-  const [selectedTerritory, setSelectedTerritory] = useState<TerritoryGeometry | null>(null);
+  const [selectedCountry, setSelectedCountry] = useState<CountryDefinition | null>(null);
   const [chatMessages, setChatMessages] = useState<{ username: string; message: string; timestamp: string }[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [resolving, setResolving] = useState(false);
 
   // Last turn resolution result
   const [lastResolution, setLastResolution] = useState<any>(null);
-
-  const worldMap = useMemo(() => generateWorldMap(), []);
 
   const fetchState = useCallback(async () => {
     if (!gameId) return;
@@ -215,8 +213,8 @@ const Game: React.FC = () => {
     return c ? `${c.flagIcon} ${c.nameZh}` : cid;
   };
 
-  const handleSelectTerritory = (t: TerritoryGeometry | null) => {
-    setSelectedTerritory(t);
+  const handleSelectCountry = (c: CountryDefinition | null) => {
+    setSelectedCountry(c);
   };
 
   const myState = state?.countryStates?.find(cs => cs.countryId === state.myCountryId);
@@ -331,29 +329,28 @@ const Game: React.FC = () => {
               </div>
             )}
 
-            {/* WebGPU Strategic Map */}
+            {/* World Strategic Map */}
             <div className="card" style={{ padding: '0.75rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                 <h3 style={{ margin: 0 }}>戰略地圖</h3>
-                {selectedTerritory && (
+                {selectedCountry && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
                     <span style={{ color: 'var(--accent-gold)' }}>
-                      已選取: {selectedTerritory.nameZh} ({getCountryName(selectedTerritory.countryId)})
+                      已選取: {selectedCountry.flagIcon} {selectedCountry.nameZh}
                     </span>
-                    <button type="button" className="btn-secondary" style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }} onClick={() => setFromTerritory(selectedTerritory.id)}>
+                    <button type="button" className="btn-secondary" style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }} onClick={() => setFromTerritory(selectedCountry.id)}>
                       設為出發地
                     </button>
-                    <button type="button" className="btn-secondary" style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }} onClick={() => setTargetTerritory(selectedTerritory.id)}>
+                    <button type="button" className="btn-secondary" style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }} onClick={() => setTargetTerritory(selectedCountry.id)}>
                       設為目標
                     </button>
                   </div>
                 )}
               </div>
-              <GameMap
-                worldMap={worldMap}
+              <WorldMap
                 countries={WWI_COUNTRIES}
-                selectedTerritoryId={selectedTerritory?.id}
-                onSelectTerritory={handleSelectTerritory}
+                selectedCountryId={selectedCountry?.id}
+                onSelectCountry={handleSelectCountry}
               />
             </div>
 
