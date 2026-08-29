@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import {
   GameRoom, Order, OrderType, WWI_COUNTRIES, CountryDefinition,
-  SIDE_LABELS_ZH, getScenario,
+  SIDE_LABELS_ZH,
 } from '@wwi/shared';
 import WorldMap from '../components/WorldMap';
 import ErrorBoundary from '../components/ErrorBoundary';
@@ -47,8 +47,6 @@ interface GameState {
 }
 
 const Game: React.FC = () => {
-  // Scenario data
-  const [scenarioData, setScenarioData] = useState<any>(null);
   const { id: gameId } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
@@ -352,11 +350,9 @@ const Game: React.FC = () => {
               </div>
               <ErrorBoundary>
                 <WorldMap
-                  countries={scenarioData?.countries || WWI_COUNTRIES}
+                  countries={WWI_COUNTRIES}
                   selectedCountryId={selectedCountry?.id}
                   onSelectCountry={handleSelectCountry}
-                  territoryMap={scenarioData?.territoryMap}
-                  mapBounds={scenarioData?.mapBounds}
                 />
               </ErrorBoundary>
             </div>

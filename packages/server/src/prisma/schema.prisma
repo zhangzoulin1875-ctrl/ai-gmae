@@ -21,7 +21,6 @@ model User {
 model GameRoom {
   id              String        @id @default(uuid())
   name            String
-  scenarioId      String   @default("wwi-global")
   status          String        @default("WAITING")
   currentTurn     Int           @default(0)
   turnIntervalHrs Int           @default(2)
