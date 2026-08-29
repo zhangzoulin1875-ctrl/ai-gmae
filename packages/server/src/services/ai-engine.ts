@@ -404,4 +404,153 @@ Respond ONLY with valid JSON in this format:
       executionTimeMs: 0,
     };
   }
+
+  /**
+   * BATCH generate orders for multiple AI countries in a SINGLE LLM call.
+   * This drastically reduces API usage: 1 call instead of N calls per turn.
+   * Falls back gracefully — if the batch fails, returns empty and caller
+   * uses the rule-based engine for all countries.
+   */
+  async generateBatchAIOrders(
+    turn: number,
+    llmCountries: Array<{
+      countryId: string;
+      infantry: number;
+      artillery: number;
+      cavalry: number;
+      morale: number;
+      gold: number;
+      industry: number;
+      manpower: number;
+      stability: number;
+      territories: string[];
+    }>,
+    allCountryStates: any[]
+  ): Promise<Record<string, Array<{
+    type: string;
+    fromTerritoryId: string | null;
+    targetTerritoryId: string | null;
+    infantry: number | null;
+    artillery: number | null;
+    cavalry: number | null;
+    details: string | null;
+  }>>> {
+    const enabledProviders = this.config.providers
+      .filter((p) => p.isEnabled)
+      .sort((a, b) => a.priority - b.priority);
+
+    if (enabledProviders.length === 0 || llmCountries.length === 0) {
+      return {};
+    }
+
+    const provider = enabledProviders[0];
+    const endpoint = provider.endpoint || 'https://api.openai.com/v1';
+    const apiKey = this.getApiKey(provider);
+    if (!apiKey) return {};
+
+    // Build a compact prompt — all countries in one request
+    const systemPrompt = `You are the strategic AI for a WWI strategy game. You control ${llmCountries.length} countries simultaneously.
+For EACH country listed, generate 1-2 strategic orders for turn ${turn}.
+Order types: "ATTACK", "DEFEND", "RECRUIT", "FORTIFY", "MOVE", "DIPLOMACY".
+All "details" text MUST be in Traditional Chinese (繁體中文).
+
+Respond ONLY with valid JSON:
+{
+  "orders": {
+    "countryId1": [
+      { "type": "ATTACK", "targetTerritoryId": "...", "fromTerritoryId": "...", "infantry": 50000, "artillery": 100, "cavalry": 20, "details": "進攻敘述" }
+    ],
+    "countryId2": [
+      { "type": "DEFEND", "fromTerritoryId": "...", "infantry": 100000, "details": "防守敘述" }
+    ]
+  }
+}
+
+Key strategic principles:
+- Attack the weakest enemy neighbor with overwhelming force
+- Defend when outnumbered or low morale
+- Recruit when resources are abundant
+- Coordinate same-side allies (Central Powers vs Entente)
+- Be decisive — don't waste turns`;
+
+    // Compress world state to reduce tokens
+    const worldBrief = allCountryStates.map((cs) => ({
+      id: cs.countryId,
+      inf: cs.infantry,
+      art: cs.artillery,
+      cav: cs.cavalry,
+      mor: cs.morale,
+      gold: cs.gold,
+      mp: cs.manpower,
+      terr: (cs.territories || []).length,
+    }));
+
+    const countriesBrief = llmCountries.map((c) => ({
+      id: c.countryId,
+      inf: c.infantry,
+      art: c.artillery,
+      cav: c.cavalry,
+      mor: c.morale,
+      gold: c.gold,
+      ind: c.industry,
+      mp: c.manpower,
+      stab: c.stability,
+      terr: c.territories.slice(0, 5), // limit to reduce tokens
+    }));
+
+    const userMsg = JSON.stringify({ turn, world: worldBrief, countries: countriesBrief });
+
+    try {
+      const res = await fetch(`${endpoint}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: provider.model,
+          temperature: 0.7,
+          max_tokens: 4000, // limit output to control cost
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMsg },
+          ],
+          response_format: { type: 'json_object' },
+        }),
+      });
+
+      if (!res.ok) {
+        console.warn(`[AI Engine] Batch orders API returned ${res.status}`);
+        return {};
+      }
+
+      const data = await res.json();
+      const content = data.choices?.[0]?.message?.content;
+      if (!content) return {};
+
+      const parsed = JSON.parse(content);
+      const ordersMap = parsed.orders || {};
+      const result: Record<string, Array<any>> = {};
+
+      for (const [countryId, orders] of Object.entries(ordersMap)) {
+        if (Array.isArray(orders)) {
+          result[countryId] = (orders as any[]).slice(0, 2).map((o) => ({
+            type: o.type || 'DEFEND',
+            fromTerritoryId: o.fromTerritoryId || null,
+            targetTerritoryId: o.targetTerritoryId || null,
+            infantry: o.infantry != null ? Number(o.infantry) : null,
+            artillery: o.artillery != null ? Number(o.artillery) : null,
+            cavalry: o.cavalry != null ? Number(o.cavalry) : null,
+            details: o.details || 'AI 戰略指令',
+          }));
+        }
+      }
+
+      console.log(`[AI Engine] Batch orders: ${llmCountries.length} countries -> ${Object.keys(result).length} with orders`);
+      return result;
+    } catch (err: any) {
+      console.warn(`[AI Engine] Batch orders failed: ${err.message}`);
+      return {};
+    }
+  }
 }

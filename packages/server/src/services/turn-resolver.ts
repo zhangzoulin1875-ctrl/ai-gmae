@@ -101,7 +101,11 @@ export class TurnResolver {
       });
     }
 
-    if (activeProviders.length > 0) {
+    // Check if there are any ATTACK orders — if not, skip LLM entirely
+    // (no battles = no need for narrative generation, saves 1 API call)
+    const hasAttackOrders = orders.some((o: any) => o.type === 'ATTACK');
+
+    if (activeProviders.length > 0 && hasAttackOrders) {
       try {
         console.log(`[TurnResolver] Attempting AI resolution for game ${gameId} turn ${currentTurn}...`);
         const aiEngine = new AIEngine({
