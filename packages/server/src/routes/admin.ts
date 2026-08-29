@@ -491,3 +491,72 @@ router.post('/games/:gameId/ai-mode', adminAuth, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// === Unit Design System ===
+import { UnitDesignerService } from '../services/unit-designer.js';
+
+const unitDesigner = new UnitDesignerService();
+
+// List all custom units
+router.get('/units', adminAuth, async (_req, res) => {
+  try {
+    const units = await unitDesigner.listUnits();
+    res.json({ units });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Design a new unit via LLM
+router.post('/units/design', adminAuth, async (req, res) => {
+  try {
+    const { prompt, category } = req.body;
+    if (!prompt || !category) return res.status(400).json({ error: '必須提供提示詞和兵種類別' });
+
+    const result = await unitDesigner.designUnit({ prompt, category });
+
+    if (result.success) {
+      res.json({ success: true, unit: result.unit });
+    } else {
+      res.status(400).json({ error: result.error });
+    }
+  } catch (error: any) {
+    console.error('[Admin] unit design error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete a custom unit
+router.delete('/units/:id', adminAuth, async (req, res) => {
+  try {
+    await unitDesigner.deleteUnit(req.params.id);
+    res.json({ success: true, message: '兵種已刪除' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get unit design rules
+router.get('/unit-rules', adminAuth, async (_req, res) => {
+  try {
+    const rules = await unitDesigner.getRules();
+    res.json(rules);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update unit design rules
+router.patch('/unit-rules', adminAuth, async (req, res) => {
+  try {
+    const rules = await unitDesigner.updateRules(req.body);
+    res.json(rules);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get API queue status
+router.get('/queue-status', adminAuth, (_req, res) => {
+  res.json(unitDesigner.getQueueStatus());
+});

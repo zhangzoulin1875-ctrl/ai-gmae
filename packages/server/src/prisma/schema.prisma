@@ -121,3 +121,48 @@ model AIProviderConfig {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
+
+model CustomUnit {
+  id            String   @id @default(uuid())
+  gameId        String?
+  category      String   // infantry | cavalry | artillery | fleet | armored
+  nameZh        String
+  nameEn        String?
+  description   String?
+  // Combat stats
+  attack        Int      @default(10)
+  defense       Int      @default(10)
+  speed         Int      @default(5)
+  range_        Int      @default(1)
+  // Recruitment cost
+  costGold      Int      @default(50)
+  costManpower  Int      @default(10000)
+  costIndustry  Int      @default(5)
+  // Metadata
+  prompt        String?
+  isApproved    Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  @@map("custom_units")
+}
+
+model UnitDesignRule {
+  id              String   @id @default(uuid())
+  era             String   @default("1914")
+  maxPerCategory  Int      @default(5)
+  // Stat caps
+  maxAttack       Int      @default(100)
+  maxDefense      Int      @default(100)
+  maxSpeed        Int      @default(50)
+  maxRange        Int      @default(10)
+  minCostGold     Int      @default(10)
+  minCostManpower Int      @default(1000)
+  minCostIndustry Int      @default(1)
+  // Forbidden technologies (newline-separated)
+  forbiddenTechs  String   @default("nuclear,atomic,nuke,missile,ballistic,jet,satellite,computer,drone,laser,stealth,cyber,radar,sonar,submarine-launched,ICBM,smart bomb,GPS")
+  // Allowed tech keywords (whitelist hint for AI)
+  allowedEra      String   @default("bolt-action rifle,machine gun,artillery cannon,cavalry horse,steam ship,dreadnought,zeppelin,early tank,biplane,trench,barbed wire,gas,flamethrower")
+  updatedAt       DateTime @updatedAt
+
+  @@map("unit_design_rules")
+}

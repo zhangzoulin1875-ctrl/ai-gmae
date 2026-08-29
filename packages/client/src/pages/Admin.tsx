@@ -11,7 +11,7 @@ const Admin: React.FC = () => {
   // Config state
   const [config, setConfig] = useState<AdminConfig | null>(null);
   const [providers, setProviders] = useState<AIProvider[]>([]);
-  const [tab, setTab] = useState<'dashboard' | 'ai' | 'games' | 'players' | 'aicountries'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'ai' | 'games' | 'players' | 'aicountries' | 'units'>('dashboard');
   const [testingProvider, setTestingProvider] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<Record<string, string>>({});
 
@@ -26,6 +26,21 @@ const Admin: React.FC = () => {
   const [playerSkip, setPlayerSkip] = useState(0);
   const [aiCountries, setAiCountries] = useState<any[]>([]);
   const [aiCountryLoading, setAiCountryLoading] = useState<string | null>(null);
+
+  // Unit Design state
+  const [unitList, setUnitList] = useState<any[]>([]);
+  const [unitRules, setUnitRules] = useState<any>(null);
+  const [unitDesigning, setUnitDesigning] = useState(false);
+  const [unitDesignPrompt, setUnitDesignPrompt] = useState('');
+  const [unitDesignCategory, setUnitDesignCategory] = useState('infantry');
+  const [unitError, setUnitError] = useState('');
+  const [unitSuccess, setUnitSuccess] = useState('');
+  const [queueStatus, setQueueStatus] = useState<any>(null);
+
+  const CATEGORY_LABELS: Record<string, string> = {
+    infantry: '步兵', cavalry: '騎兵', artillery: '砲兵', fleet: '艦隊', armored: '裝甲',
+  };
+  const CATEGORIES = ['infantry', 'cavalry', 'artillery', 'fleet', 'armored'];
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -177,8 +192,76 @@ const Admin: React.FC = () => {
     if (tab === 'dashboard') loadStats();
     if (tab === 'players') loadPlayers(playerSkip);
     if (tab === 'aicountries') loadAICountries();
+    if (tab === 'units') { loadUnits(); loadUnitRules(); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed, tab]);
+
+  const loadUnits = async () => {
+    const token = localStorage.getItem('adminToken');
+    if (!token) return;
+    try {
+      const res = await fetch(getApiUrl('/api/admin/units'), { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) { const data = await res.json(); setUnitList(data.units || []); }
+    } catch {}
+  };
+
+  const loadUnitRules = async () => {
+    const token = localStorage.getItem('adminToken');
+    if (!token) return;
+    try {
+      const res = await fetch(getApiUrl('/api/admin/unit-rules'), { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) { const data = await res.json(); setUnitRules(data); }
+    } catch {}
+  };
+
+  const handleDesignUnit = async () => {
+    if (!unitDesignPrompt.trim()) return;
+    const token = localStorage.getItem('adminToken');
+    if (!token) return;
+    setUnitDesigning(true); setUnitError(''); setUnitSuccess('');
+    try {
+      const res = await fetch(getApiUrl('/api/admin/units/design'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ prompt: unitDesignPrompt, category: unitDesignCategory }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setUnitSuccess(`✓ 兵種「${data.unit.nameZh}」設計成功！`);
+        setUnitDesignPrompt('');
+        await loadUnits();
+      } else {
+        setUnitError(data.error || '設計失敗');
+      }
+    } catch (e: any) { setUnitError('連線失敗: ' + e.message); }
+    finally { setUnitDesigning(false); }
+  };
+
+  const handleDeleteUnit = async (id: string) => {
+    const token = localStorage.getItem('adminToken');
+    if (!token) return;
+    try {
+      await fetch(getApiUrl(`/api/admin/units/${id}`), {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      await loadUnits();
+    } catch {}
+  };
+
+  const handleUpdateRules = async (field: string, value: any) => {
+    const token = localStorage.getItem('adminToken');
+    if (!token || !unitRules) return;
+    const updated = { ...unitRules, [field]: value };
+    setUnitRules(updated);
+    try {
+      await fetch(getApiUrl('/api/admin/unit-rules'), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ [field]: value }),
+      });
+    } catch {}
+  };
 
   const createGame = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -441,6 +524,7 @@ const Admin: React.FC = () => {
     { key: 'ai' as const, label: '🤖 AI 設定' },
     { key: 'games' as const, label: '🎮 戰局管理' },
     { key: 'aicountries' as const, label: '♟️ AI 國家管理' },
+    { key: 'units' as const, label: '⚔️ 兵種設計' },
     { key: 'players' as const, label: '👥 玩家管理' },
   ];
 
@@ -883,6 +967,138 @@ const Admin: React.FC = () => {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Unit Design Tab */}
+      {tab === 'units' && (
+        <div>
+          <h3 style={{ marginBottom: '1rem' }}>⚔️ 兵種設計系統</h3>
+
+          {/* Design form */}
+          <div className="card" style={{ marginBottom: '1.5rem' }}>
+            <h4 style={{ marginBottom: '0.75rem' }}>設計新兵種</h4>
+            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+              <select
+                value={unitDesignCategory}
+                onChange={(e) => setUnitDesignCategory(e.target.value)}
+                style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg)', color: 'var(--text)' }}
+              >
+                {CATEGORIES.map((c) => {
+                  const count = unitList.filter((u) => u.category === c).length;
+                  return <option key={c} value={c}>{CATEGORY_LABELS[c]}（{count}/5）</option>;
+                })}
+              </select>
+              <input
+                type="text"
+                placeholder="輸入提示詞，例如：擅長壕溝戰的精銳步兵，裝備毛瑟步槍和手榴彈"
+                value={unitDesignPrompt}
+                onChange={(e) => setUnitDesignPrompt(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !unitDesigning) handleDesignUnit(); }}
+                style={{ flex: 1, minWidth: '300px', padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg)', color: 'var(--text)' }}
+              />
+              <button
+                onClick={handleDesignUnit}
+                disabled={unitDesigning || !unitDesignPrompt.trim()}
+                className="btn-primary"
+                style={{ padding: '0.5rem 1.5rem', whiteSpace: 'nowrap' }}
+              >
+                {unitDesigning ? '⏳ AI 設計中...' : '🔨 設計兵種'}
+              </button>
+            </div>
+            {unitError && <p style={{ color: '#ef4444', fontSize: '0.85rem', marginTop: '0.5rem' }}>✗ {unitError}</p>}
+            {unitSuccess && <p style={{ color: '#22c55e', fontSize: '0.85rem', marginTop: '0.5rem' }}>{unitSuccess}</p>}
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '0.5rem' }}>
+              💡 提示詞會經過硬規則檢查，禁用技術（核武、飛彈、匿蹤等）會被自動攔截。API 請求排隊處理，一次最多 1 個併發請求。
+            </p>
+          </div>
+
+          {/* Hard Rules (configurable) */}
+          {unitRules && (
+            <div className="card" style={{ marginBottom: '1.5rem' }}>
+              <h4 style={{ marginBottom: '0.75rem' }}>⚙️ 硬規則設定</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>年代</label>
+                  <input type="text" value={unitRules.era || ''} onChange={(e) => handleUpdateRules('era', e.target.value)} style={{ width: '100%', padding: '0.4rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg)', color: 'var(--text)' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>每類上限</label>
+                  <input type="number" value={unitRules.maxPerCategory ?? 5} onChange={(e) => handleUpdateRules('maxPerCategory', Number(e.target.value))} style={{ width: '100%', padding: '0.4rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg)', color: 'var(--text)' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>最大攻擊</label>
+                  <input type="number" value={unitRules.maxAttack ?? 100} onChange={(e) => handleUpdateRules('maxAttack', Number(e.target.value))} style={{ width: '100%', padding: '0.4rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg)', color: 'var(--text)' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>最大防禦</label>
+                  <input type="number" value={unitRules.maxDefense ?? 100} onChange={(e) => handleUpdateRules('maxDefense', Number(e.target.value))} style={{ width: '100%', padding: '0.4rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg)', color: 'var(--text)' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>最大速度</label>
+                  <input type="number" value={unitRules.maxSpeed ?? 50} onChange={(e) => handleUpdateRules('maxSpeed', Number(e.target.value))} style={{ width: '100%', padding: '0.4rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg)', color: 'var(--text)' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>最低黃金消耗</label>
+                  <input type="number" value={unitRules.minCostGold ?? 10} onChange={(e) => handleUpdateRules('minCostGold', Number(e.target.value))} style={{ width: '100%', padding: '0.4rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg)', color: 'var(--text)' }} />
+                </div>
+              </div>
+              <div style={{ marginTop: '0.75rem' }}>
+                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>禁用技術（逗號分隔）</label>
+                <textarea value={unitRules.forbiddenTechs || ''} onChange={(e) => handleUpdateRules('forbiddenTechs', e.target.value)} rows={2} style={{ width: '100%', padding: '0.4rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg)', color: 'var(--text)', fontSize: '0.8rem', fontFamily: 'monospace' }} />
+              </div>
+              <div style={{ marginTop: '0.5rem' }}>
+                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>允許技術（逗號分隔）</label>
+                <textarea value={unitRules.allowedEra || ''} onChange={(e) => handleUpdateRules('allowedEra', e.target.value)} rows={2} style={{ width: '100%', padding: '0.4rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg)', color: 'var(--text)', fontSize: '0.8rem', fontFamily: 'monospace' }} />
+              </div>
+            </div>
+          )}
+
+          {/* Existing units by category */}
+          {CATEGORIES.map((cat) => {
+            const units = unitList.filter((u) => u.category === cat);
+            return (
+              <div key={cat} style={{ marginBottom: '1rem' }}>
+                <h4 style={{ marginBottom: '0.5rem', color: 'var(--text-muted)', fontSize: '0.95rem' }}>
+                  {CATEGORY_LABELS[cat]}（{units.length}/5）
+                </h4>
+                {units.length === 0 ? (
+                  <div className="card" style={{ padding: '0.75rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                    尚未設計任何{CATEGORY_LABELS[cat]}兵種
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.75rem' }}>
+                    {units.map((u) => (
+                      <div key={u.id} className="card" style={{ padding: '0.75rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div style={{ flex: 1 }}>
+                            <p style={{ fontWeight: 700, fontSize: '1rem' }}>{u.nameZh}</p>
+                            {u.nameEn && <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{u.nameEn}</p>}
+                          </div>
+                          <button
+                            onClick={() => handleDeleteUnit(u.id)}
+                            style={{ padding: '0.15rem 0.4rem', color: '#ef4444', background: 'transparent', border: '1px solid #ef4444', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        {u.description && <p style={{ fontSize: '0.8rem', marginTop: '0.25rem', color: 'var(--text-muted)' }}>{u.description}</p>}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.25rem', marginTop: '0.5rem', fontSize: '0.75rem' }}>
+                          <span>⚔️ 攻: {u.attack}</span>
+                          <span>🛡️ 防: {u.defense}</span>
+                          <span>💨 速: {u.speed}</span>
+                          <span>💰 金: {u.costGold}</span>
+                          <span>👥 人: {u.costManpower.toLocaleString()}</span>
+                          <span>🏭 工: {u.costIndustry}</span>
+                        </div>
+                        {u.prompt && <p style={{ fontSize: '0.7rem', marginTop: '0.25rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>提示: {u.prompt}</p>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
