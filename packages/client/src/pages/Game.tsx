@@ -111,10 +111,10 @@ const Game: React.FC = () => {
 
     const user = JSON.parse(localStorage.getItem('user') || '{}');
 
+    // Join the game room (countryId will be sent once state loads)
     newSocket.emit('join_game', {
       gameId,
       userId: user.id,
-      countryId: state?.myCountryId || '',
     });
 
     newSocket.on('room_data', (data: any) => {
@@ -169,6 +169,18 @@ const Game: React.FC = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId]);
+
+  // Re-emit join_game with countryId once we have it
+  useEffect(() => {
+    if (socket && gameId && state?.myCountryId) {
+      socket.emit('join_game', {
+        gameId,
+        userId: JSON.parse(localStorage.getItem('user') || '{}').id,
+        countryId: state.myCountryId,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, gameId, state?.myCountryId]);
 
   const handleSubmitOrder = (e: React.FormEvent) => {
     e.preventDefault();

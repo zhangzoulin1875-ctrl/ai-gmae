@@ -94,10 +94,9 @@ export class TurnScheduler {
         }
       }
 
-      this.io.emit('turn_resolved', {
+      this.io.emit('turn_batch_complete', {
         timestamp: new Date().toISOString(),
         gamesResolved: resolvedCount,
-        message: `Turn resolution complete (${resolvedCount} games)`,
       });
 
       console.log(`[Scheduler] Turn resolution complete: ${resolvedCount} games resolved`);

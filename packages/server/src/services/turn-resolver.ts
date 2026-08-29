@@ -90,13 +90,16 @@ export class TurnResolver {
         }
 
         const defenderState = stateMap.get(defenderId)!;
-        const attackerForce = orderInfantry * 1.0 + orderArtillery * 1.5 + orderCavalry * 0.8;
-        const defenderForce = defenderState.infantry * 0.0005 + defenderState.artillery * 1.0 + defenderState.morale / 100;
+        // Force calculation: attacker commits a portion of their army (the order amount),
+        // defender defends with their total standing army (scaled down to represent active defense)
+        const attackerForce = orderInfantry + orderArtillery * 3 + orderCavalry * 2;
+        const defenderForce = Math.floor(defenderState.infantry * 0.1) + defenderState.artillery * 3 + defenderState.cavalry * 1.5 + defenderState.morale * 100;
 
-        const attackerWins = attackerForce > defenderForce * 0.8;
+        // Attacker needs >60% of defender force to win (defender advantage)
+        const attackerWins = attackerForce > defenderForce * 0.6;
 
-        const attackerLossInf = Math.floor(orderInfantry * (attackerWins ? 0.2 : 0.5));
-        const defenderLossInf = Math.floor(defenderState.infantry * (attackerWins ? 0.05 : 0.02));
+        const attackerLossInf = Math.min(orderInfantry, Math.floor(orderInfantry * (attackerWins ? 0.15 : 0.4)));
+        const defenderLossInf = Math.min(defenderState.infantry, Math.floor(defenderState.infantry * (attackerWins ? 0.08 : 0.03)));
 
         battles.push({
           territoryId: order.targetTerritoryId,
@@ -152,6 +155,13 @@ export class TurnResolver {
       } else if (order.type === 'DIPLOMACY') {
         events.push(`${COUNTRY_NAMES[order.countryId]} 發起外交行動`);
       }
+    }
+
+    // 4.5 Per-turn economy: gold income from industry, manpower regen
+    for (const cs of stateMap.values()) {
+      cs.gold += cs.industry * 5;        // Industry produces gold
+      cs.manpower += Math.floor(cs.manpower * 0.05) + 1000;  // Manpower regen ~5%
+      cs.morale = Math.min(100, cs.morale + 1);  // Slight morale recovery
     }
 
     // 5. Create new CountryState records for turn+1

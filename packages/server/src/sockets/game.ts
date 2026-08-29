@@ -34,9 +34,17 @@ export function handleGameSockets(io: SocketIOServer, socket: Socket) {
         });
       }
 
+      // Fetch the player record to send complete info
+      const player = game?.players.find((p) => p.userId === userId);
+      const playerUser = player?.user;
       socket.to(`game:${gameId}`).emit('player_joined', {
         userId,
         gameId,
+        countryId: player?.countryId || '',
+        username: playerUser?.username || '',
+        avatar: playerUser?.avatar || null,
+        isAI: player?.isAI || false,
+        isReady: player?.isReady || false,
       });
       console.log(`[Socket] ${userId} joined game ${gameId}`);
     } catch (err: any) {
