@@ -1,8 +1,8 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate, NavLink, Outlet } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import {
-  Order, OrderType, WWI_COUNTRIES, CountryDefinition,
+  Order, OrderType, WWI_COUNTRIES, CountryDefinition, getScenario,
 } from '@wwi/shared';
 import WorldMap from '../components/WorldMap';
 import ErrorBoundary from '../components/ErrorBoundary';
@@ -59,6 +59,16 @@ const Game: React.FC = () => {
   const navigate = useNavigate();
 
   const [state, setState] = useState<GameState | null>(null);
+  // Resolve the country list for this game's scenario — falls back to the
+  // legacy static WWI list when no scenario is set (or scenario unknown).
+  const scenarioCountries: CountryDefinition[] = useMemo(() => {
+    const scenarioId = state?.game?.scenarioId;
+    if (scenarioId) {
+      const scenario = getScenario(scenarioId);
+      if (scenario) return scenario.countries as CountryDefinition[];
+    }
+    return WWI_COUNTRIES as CountryDefinition[];
+  }, [state?.game?.scenarioId]);
   const [militaryState, setMilitaryState] = useState<MilitaryState | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [loading, setLoading] = useState(true);
@@ -530,7 +540,7 @@ const Game: React.FC = () => {
 
   const getCountryName = (cid: string) => {
     if (!cid) return '未選擇';
-    const c = WWI_COUNTRIES.find((x) => x.id === cid);
+    const c = scenarioCountries.find((x) => x.id === cid);
     const csInfo = state?.countryStates.find((cs) => cs.countryId === cid);
     const displayName = csInfo?.customName || c?.nameZh || cid;
     return c ? `${c.flagIcon} ${displayName}` : displayName;
@@ -538,13 +548,13 @@ const Game: React.FC = () => {
 
   const getCountryNameZh = (cid: string) => {
     if (!cid) return '未選擇';
-    const c = WWI_COUNTRIES.find((x) => x.id === cid);
+    const c = scenarioCountries.find((x) => x.id === cid);
     return c ? c.nameZh : cid;
   };
 
   const getCountryFlag = (cid: string) => {
     if (!cid) return '🌐';
-    const c = WWI_COUNTRIES.find((x) => x.id === cid);
+    const c = scenarioCountries.find((x) => x.id === cid);
     return c ? c.flagIcon : '🌐';
   };
 
@@ -776,7 +786,7 @@ const Game: React.FC = () => {
 
               <ErrorBoundary>
                 <WorldMap
-                  countries={WWI_COUNTRIES}
+                  countries={scenarioCountries}
                   selectedCountryId={mapSelectMode === 'target' ? (targetTerritory || selectedCountry?.id) : (fromTerritory || selectedCountry?.id)}
                   onSelectCountry={handleSelectCountry}
                   mapSelectMode={mapSelectMode}
@@ -867,7 +877,7 @@ const Game: React.FC = () => {
               <h3 style={{ marginBottom: '1rem' }}>參戰國家 ({state.players.length})</h3>
               <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
                 {state.players.map((p) => {
-                  const c = WWI_COUNTRIES.find(x => x.id === p.countryId);
+                  const c = scenarioCountries.find(x => x.id === p.countryId);
                   return (
                     <div key={p.countryId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.4rem 0', borderBottom: '1px solid var(--bg-tertiary)', fontSize: '0.85rem' }}>
                       <span>

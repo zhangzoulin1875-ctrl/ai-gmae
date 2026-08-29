@@ -10,7 +10,7 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../lib/api';
-import { WWI_COUNTRIES } from '@wwi/shared';
+import { useGame } from '../contexts/GameContext';
 
 interface AllianceMemberInfo {
   countryId: string;
@@ -38,10 +38,8 @@ const AlliancePanel: React.FC<{ gameId: string; myCountryId: string; refreshTrig
   const [newColor, setNewColor] = useState('#3b82f6');
   const [busy, setBusy] = useState<string | null>(null);
 
-  const cn = (cid: string) => {
-    const c = WWI_COUNTRIES.find((x) => x.id === cid);
-    return c ? `${c.flagIcon} ${c.nameZh}` : cid;
-  };
+  const { getCountryName } = useGame();
+  const cn = (cid: string) => getCountryName(cid);
 
   const fetchAlliances = useCallback(async () => {
     try {

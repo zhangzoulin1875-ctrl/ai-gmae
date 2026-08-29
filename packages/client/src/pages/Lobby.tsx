@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { WWI_COUNTRIES, CountryDefinition } from '@wwi/shared';
+import { WWI_COUNTRIES, CountryDefinition, getScenario } from '@wwi/shared';
 import { getApiUrl } from '../lib/api';
 import WorldMap from '../components/WorldMap';
 
@@ -54,6 +54,11 @@ const Lobby: React.FC = () => {
   const activeGame = games.find((g) => g.game.id === activeGameId) || null;
   const takenSet = new Set(activeGame?.takenCountryIds || []);
   const isFull = !!activeGame && takenSet.size >= (activeGame.totalCountries || WWI_COUNTRIES.length);
+  // Resolve the country list for the active game's scenario — falls back to
+  // the legacy static WWI list when no scenario is set (or scenario unknown).
+  const scenarioCountries: CountryDefinition[] =
+    (activeGame?.game.scenarioId && getScenario(activeGame.game.scenarioId)?.countries as CountryDefinition[]) ||
+    (WWI_COUNTRIES as CountryDefinition[]);
 
   const handleSelectCountry = (country: CountryDefinition | null) => {
     if (!country) { setClickedCountry(null); return; }
@@ -184,7 +189,7 @@ const Lobby: React.FC = () => {
                     <p style={{ color: 'var(--text-muted)', marginBottom: '0.5rem' }}>在「{activeGame.game.name}」中，你已動員為</p>
                     <h3 style={{ fontSize: '1.5rem' }}>
                       {(() => {
-                        const c = WWI_COUNTRIES.find((x) => x.id === activeGame.myCountryId);
+                        const c = scenarioCountries.find((x) => x.id === activeGame.myCountryId);
                         return c ? `${c.flagIcon} ${c.nameZh}` : activeGame.myCountryId;
                       })()}
                     </h3>
@@ -208,7 +213,7 @@ const Lobby: React.FC = () => {
                     </div>
 
                     <WorldMap
-                      countries={WWI_COUNTRIES as CountryDefinition[]}
+                      countries={scenarioCountries}
                       takenCountryIds={activeGame.takenCountryIds}
                       selectedCountryId={clickedCountry?.id || null}
                       onSelectCountry={handleSelectCountry}
@@ -246,7 +251,7 @@ const Lobby: React.FC = () => {
                         <h4 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>已參戰指揮官</h4>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                           {activeGame.players.map((p) => {
-                            const c = WWI_COUNTRIES.find((x) => x.id === p.countryId);
+                            const c = scenarioCountries.find((x) => x.id === p.countryId);
                             return (
                               <span key={p.countryId} style={{
                                 fontSize: '0.8rem', padding: '0.25rem 0.6rem', borderRadius: '12px',
