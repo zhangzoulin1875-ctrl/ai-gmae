@@ -4,6 +4,8 @@ import type { AIConfig, AIProvider } from '@wwi/shared';
 import { AIEngine } from '../services/ai-engine.js';
 import { WWI_COUNTRIES } from '@wwi/shared';
 import { prisma } from '../lib/prisma.js';
+import { initializeGameCountries } from '../services/game-init.js';
+import { TurnResolver } from '../services/turn-resolver.js';
 
 const router = Router();
 
@@ -152,6 +154,9 @@ router.post('/games', adminAuth, async (req, res) => {
       data: { name: name.trim(), status: 'ACTIVE' },
     });
 
+    // Initialize all 54 country states with starting values
+    await initializeGameCountries(game.id);
+
     res.json({ success: true, game });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -191,6 +196,18 @@ router.post('/games/:gameId/remove-ai', adminAuth, async (req, res) => {
 router.post('/games/:gameId/force-turn', adminAuth, async (req, res) => {
   const { gameId } = req.params;
   res.json({ success: true, message: `Turn force-resolved for game ${gameId}` });
+});
+
+// Manual turn resolution (for testing)
+router.post('/games/:gameId/resolve-turn', adminAuth, async (req, res) => {
+  try {
+    const resolver = new TurnResolver();
+    const result = await resolver.resolveTurn(req.params.gameId);
+    res.json(result);
+  } catch (error: any) {
+    console.error('[Admin] resolve-turn error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 function getDefaultConfig(): AIConfig {

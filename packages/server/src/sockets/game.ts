@@ -1,47 +1,162 @@
 import type { Server as SocketIOServer, Socket } from 'socket.io';
+import { prisma } from '../lib/prisma.js';
 
 export function handleGameSockets(io: SocketIOServer, socket: Socket) {
   // Join a game room
-  socket.on('join_game', (data: { gameId: string; userId: string }) => {
+  socket.on('join_game', async (data: { gameId: string; userId: string; countryId?: string }) => {
     const { gameId, userId } = data;
     socket.join(`game:${gameId}`);
     socket.data.gameId = gameId;
     socket.data.userId = userId;
-    console.log(`[Socket] ${userId} joined game ${gameId}`);
 
-    // Notify others in the room
-    socket.to(`game:${gameId}`).emit('player_joined', { userId, gameId });
+    try {
+      const game = await prisma.gameRoom.findUnique({
+        where: { id: gameId },
+        include: { players: { include: { user: true } } },
+      });
+
+      if (game) {
+        socket.emit('room_data', {
+          game: {
+            id: game.id,
+            name: game.name,
+            status: game.status,
+            currentTurn: game.currentTurn,
+            nextTurnAt: game.nextTurnAt,
+          },
+          players: game.players.map((p) => ({
+            countryId: p.countryId,
+            username: p.user.username,
+            avatar: p.user.avatar,
+            isAI: p.isAI,
+            isReady: p.isReady,
+          })),
+        });
+      }
+
+      socket.to(`game:${gameId}`).emit('player_joined', {
+        userId,
+        gameId,
+      });
+      console.log(`[Socket] ${userId} joined game ${gameId}`);
+    } catch (err: any) {
+      console.error('[Socket] join_game error:', err.message);
+    }
   });
 
-  // Leave a game room
-  socket.on('leave_game', (data: { gameId: string }) => {
-    socket.leave(`game:${data.gameId}`);
-    console.log(`[Socket] ${socket.data.userId} left game ${data.gameId}`);
-  });
-
-  // Submit orders for the turn
-  socket.on('submit_orders', (data: {
+  // Submit orders
+  socket.on('submit_orders', async (data: {
     gameId: string;
-    orders: any[];
-    countryId: string;
+    orders: Array<{
+      type: string;
+      fromTerritoryId?: string;
+      targetTerritoryId?: string;
+      infantry?: number;
+      artillery?: number;
+      cavalry?: number;
+      details?: string;
+    }>;
   }) => {
-    const { gameId, orders, countryId } = data;
-    console.log(`[Socket] Orders submitted for game ${gameId}, country ${countryId}: ${orders.length} orders`);
+    const { gameId, orders } = data;
+    const userId = socket.data.userId;
+    if (!userId) {
+      socket.emit('error', { message: '未識別使用者' });
+      return;
+    }
 
-    // TODO: Store orders in DB
-    // For now, acknowledge receipt
-    socket.emit('orders_acknowledged', {
-      gameId,
-      countryId,
-      orderCount: orders.length,
-      timestamp: new Date().toISOString(),
-    });
+    try {
+      const game = await prisma.gameRoom.findUnique({
+        where: { id: gameId },
+        include: { players: true },
+      });
+      if (!game || game.status !== 'ACTIVE') {
+        socket.emit('error', { message: '戰局不存在或不在進行中' });
+        return;
+      }
 
-    // Notify others that this country has submitted
-    socket.to(`game:${gameId}`).emit('country_ready', { countryId, gameId });
+      const player = game.players.find((p) => p.userId === userId);
+      if (!player) {
+        socket.emit('error', { message: '你未加入此戰局' });
+        return;
+      }
+
+      // Create order records
+      const orderRecords = [];
+      for (const order of orders) {
+        const record = await prisma.order.create({
+          data: {
+            gameId,
+            playerId: player.id,
+            countryId: player.countryId,
+            turn: game.currentTurn,
+            type: order.type,
+            fromTerritoryId: order.fromTerritoryId || null,
+            targetTerritoryId: order.targetTerritoryId || null,
+            infantry: order.infantry || null,
+            artillery: order.artillery || null,
+            cavalry: order.cavalry || null,
+            details: order.details || null,
+            status: 'PENDING',
+          },
+        });
+        orderRecords.push(record);
+      }
+
+      socket.emit('orders_confirmed', {
+        gameId,
+        orderCount: orderRecords.length,
+        timestamp: new Date().toISOString(),
+      });
+
+      socket.to(`game:${gameId}`).emit('country_ready', {
+        countryId: player.countryId,
+        gameId,
+      });
+
+      console.log(`[Socket] ${userId} submitted ${orderRecords.length} orders for game ${gameId}`);
+    } catch (err: any) {
+      console.error('[Socket] submit_orders error:', err.message);
+      socket.emit('error', { message: err.message });
+    }
   });
 
-  // Chat messages
+  // Mark ready
+  socket.on('mark_ready', async (data: { gameId: string; countryId: string }) => {
+    const { gameId, countryId } = data;
+    const userId = socket.data.userId;
+    if (!userId) return;
+
+    try {
+      const player = await prisma.player.findFirst({
+        where: { gameId, userId },
+      });
+      if (player) {
+        await prisma.player.update({
+          where: { id: player.id },
+          data: { isReady: true },
+        });
+      }
+
+      io.to(`game:${gameId}`).emit('country_ready', { countryId, gameId });
+
+      // Check if all human players are ready
+      const game = await prisma.gameRoom.findUnique({
+        where: { id: gameId },
+        include: { players: true },
+      });
+      if (game) {
+        const humanPlayers = game.players.filter((p) => !p.isAI);
+        const allReady = humanPlayers.length > 0 && humanPlayers.every((p) => p.isReady);
+        if (allReady) {
+          io.to(`game:${gameId}`).emit('all_ready', { gameId });
+        }
+      }
+    } catch (err: any) {
+      console.error('[Socket] mark_ready error:', err.message);
+    }
+  });
+
+  // Chat
   socket.on('chat_message', (data: {
     gameId: string;
     userId: string;
@@ -56,7 +171,7 @@ export function handleGameSockets(io: SocketIOServer, socket: Socket) {
     });
   });
 
-  // Private message (diplomatic communication)
+  // Private message
   socket.on('private_message', (data: {
     gameId: string;
     fromUserId: string;
@@ -64,8 +179,7 @@ export function handleGameSockets(io: SocketIOServer, socket: Socket) {
     toUserId: string;
     message: string;
   }) => {
-    // Find the socket of the target user and send
-    for (const [id, s] of io.sockets.sockets) {
+    for (const [, s] of io.sockets.sockets) {
       if (s.data.userId === data.toUserId && s.data.gameId === data.gameId) {
         s.emit('private_message', {
           fromUserId: data.fromUserId,
@@ -73,23 +187,22 @@ export function handleGameSockets(io: SocketIOServer, socket: Socket) {
           message: data.message,
           timestamp: new Date().toISOString(),
         });
+        break;
       }
     }
   });
 
-  // Mark ready
-  socket.on('mark_ready', (data: { gameId: string; countryId: string }) => {
-    socket.to(`game:${data.gameId}`).emit('country_ready', {
-      countryId: data.countryId,
+  // Leave game
+  socket.on('leave_game', (data: { gameId: string }) => {
+    socket.leave(`game:${data.gameId}`);
+    socket.to(`game:${data.gameId}`).emit('player_left', {
+      userId: socket.data.userId,
       gameId: data.gameId,
     });
   });
 
-  // Map interaction (for real-time cursor/selection sync)
-  socket.on('map_select', (data: {
-    gameId: string;
-    territoryId: string;
-  }) => {
+  // Map selection sync
+  socket.on('map_select', (data: { gameId: string; territoryId: string }) => {
     socket.to(`game:${data.gameId}`).emit('map_selected', {
       userId: socket.data.userId,
       territoryId: data.territoryId,

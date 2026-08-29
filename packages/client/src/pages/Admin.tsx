@@ -127,6 +127,31 @@ const Admin: React.FC = () => {
     }
   };
 
+  const resolveTurn = async (gameId: string) => {
+    if (!window.confirm('確定要立即結算本回合嗎？')) return;
+    const token = localStorage.getItem('adminToken');
+    setGameActionLoading(true);
+    setGameError('');
+    try {
+      const res = await fetch(getApiUrl(`/api/admin/games/${gameId}/resolve-turn`), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setGameError('');
+        alert(`第 ${data.turn} 回合結算完成!\n${data.narrative || ''}`);
+        loadGames();
+      } else {
+        setGameError(data.error || '結算失敗');
+      }
+    } catch (err: any) {
+      setGameError(err.message || '連線錯誤');
+    } finally {
+      setGameActionLoading(false);
+    }
+  };
+
   const updateProvider = (id: string, updates: Partial<AIProvider>) => {
     setProviders((prev) =>
       prev.map((p) => (p.id === id ? { ...p, ...updates } : p))
@@ -596,13 +621,22 @@ const Admin: React.FC = () => {
                       狀態: <span style={{ color: 'var(--accent-gold)' }}>{currentGame.status}</span> | 第 {currentGame.currentTurn} 回合 | 玩家: {currentGame.playerCount}/{currentGame.maxPlayers}
                     </p>
                   </div>
-                  <button
-                    onClick={() => endGame(currentGame.id)}
-                    disabled={gameActionLoading}
-                    style={{ padding: '0.6rem 1.5rem', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 600, cursor: 'pointer' }}
-                  >
-                    結束戰局
-                  </button>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button
+                      onClick={() => resolveTurn(currentGame.id)}
+                      disabled={gameActionLoading}
+                      style={{ padding: '0.6rem 1.5rem', backgroundColor: '#22c55e', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      立即結算
+                    </button>
+                    <button
+                      onClick={() => endGame(currentGame.id)}
+                      disabled={gameActionLoading}
+                      style={{ padding: '0.6rem 1.5rem', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      結束戰局
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <form onSubmit={createGame} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end' }}>
