@@ -12,8 +12,8 @@ const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'wwi-game-secret-change-in-production';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 
-// In-memory config (will be backed by DB later)
-let currentAIConfig: AIConfig | null = null;
+// AI config is persisted in the AIProviderConfig table (see helpers below).
+// No in-memory state here — this survives server restarts / redeploys.
 
 // Admin login
 router.post('/login', (req, res) => {
@@ -45,11 +45,12 @@ const adminAuth = (req: any, res: any, next: any) => {
   }
 };
 
-// Get admin config
+// Get admin config — AI providers are loaded from DB (persists across restarts)
 router.get('/config', adminAuth, async (_req, res) => {
   try {
+    const aiConfig = await loadAIConfigFromDB();
     res.json({
-      aiConfig: currentAIConfig || getDefaultConfig(),
+      aiConfig,
       turnIntervalHours: 2,
       quietHoursStartUTC8: 0,
       quietHoursEndUTC8: 8,
@@ -61,7 +62,7 @@ router.get('/config', adminAuth, async (_req, res) => {
   }
 });
 
-// Update AI config
+// Update AI config — persisted to AIProviderConfig table (survives restarts)
 router.put('/ai-config', adminAuth, async (req, res) => {
   try {
     const config: AIConfig = req.body;
@@ -69,22 +70,49 @@ router.put('/ai-config', adminAuth, async (req, res) => {
       return res.status(400).json({ error: 'Invalid config format' });
     }
 
-    // Save API keys to environment variables for the AI engine
+    const incomingIds = config.fallbackChain.providers.map((p) => p.id);
+
+    // Upsert every provider into the DB
     for (const provider of config.fallbackChain.providers) {
-      if (provider.type === 'openai' && provider.apiKey) {
-        process.env.OPENAI_API_KEY = provider.apiKey;
-        if (provider.endpoint) process.env.OPENAI_BASE_URL = provider.endpoint;
-      }
-      if (provider.type === 'custom' && provider.apiKey) {
-        // Store in env with provider id as suffix
-        process.env[`AI_KEY_${provider.id}`] = provider.apiKey;
-        if (provider.endpoint) process.env[`AI_URL_${provider.id}`] = provider.endpoint;
-      }
+      await prisma.aIProviderConfig.upsert({
+        where: { id: provider.id },
+        create: {
+          id: provider.id,
+          name: provider.name,
+          type: provider.type,
+          apiKeyEnc: provider.apiKey || null,
+          endpoint: provider.endpoint || null,
+          model: provider.model,
+          priority: provider.priority,
+          isEnabled: provider.isEnabled,
+          timeoutMs: provider.timeoutMs,
+          maxRetries: provider.maxRetries,
+        },
+        update: {
+          name: provider.name,
+          type: provider.type,
+          // Only overwrite the stored key if a new one was actually provided
+          // (avoids wiping a saved key when the UI resubmits a masked/blank value)
+          apiKeyEnc: provider.apiKey ? provider.apiKey : undefined,
+          endpoint: provider.endpoint || null,
+          model: provider.model,
+          priority: provider.priority,
+          isEnabled: provider.isEnabled,
+          timeoutMs: provider.timeoutMs,
+          maxRetries: provider.maxRetries,
+        },
+      });
     }
 
-    currentAIConfig = config;
-    res.json({ success: true, config });
+    // Remove providers that were deleted in the admin UI
+    await prisma.aIProviderConfig.deleteMany({
+      where: { id: { notIn: incomingIds.length > 0 ? incomingIds : ['__none__'] } },
+    });
+
+    const savedConfig = await loadAIConfigFromDB();
+    res.json({ success: true, config: savedConfig });
   } catch (error: any) {
+    console.error('[Admin] ai-config save error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -308,6 +336,60 @@ function getDefaultConfig(): AIConfig {
           maxRetries: 2,
         },
       ],
+      enableDeterministicFallback: true,
+      maxTotalTimeoutMs: 120000,
+    },
+    temperature: 0.7,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+// Loads AI config from the DB. On very first boot (no rows yet), seeds the
+// DB with the env-var defaults ONCE so it never has to fall back to
+// in-memory defaults again — this is what makes settings survive restarts.
+async function loadAIConfigFromDB(): Promise<AIConfig> {
+  const existing = await prisma.aIProviderConfig.findMany({ orderBy: { priority: 'asc' } });
+
+  if (existing.length === 0) {
+    const defaults = getDefaultConfig();
+    for (const provider of defaults.fallbackChain.providers) {
+      await prisma.aIProviderConfig.upsert({
+        where: { id: provider.id },
+        create: {
+          id: provider.id,
+          name: provider.name,
+          type: provider.type,
+          apiKeyEnc: provider.apiKey || null,
+          endpoint: provider.endpoint || null,
+          model: provider.model,
+          priority: provider.priority,
+          isEnabled: provider.isEnabled,
+          timeoutMs: provider.timeoutMs,
+          maxRetries: provider.maxRetries,
+        },
+        update: {},
+      });
+    }
+    return defaults;
+  }
+
+  const providers: AIProvider[] = existing.map((cfg) => ({
+    id: cfg.id,
+    name: cfg.name,
+    type: cfg.type as AIProvider['type'],
+    apiKey: cfg.apiKeyEnc || '',
+    endpoint: cfg.endpoint || undefined,
+    model: cfg.model,
+    priority: cfg.priority,
+    isEnabled: cfg.isEnabled,
+    timeoutMs: cfg.timeoutMs,
+    maxRetries: cfg.maxRetries,
+  }));
+
+  return {
+    activeProviderId: providers.find((p) => p.isEnabled)?.id || '',
+    fallbackChain: {
+      providers,
       enableDeterministicFallback: true,
       maxTotalTimeoutMs: 120000,
     },
