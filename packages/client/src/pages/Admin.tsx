@@ -11,7 +11,7 @@ const Admin: React.FC = () => {
   // Config state
   const [config, setConfig] = useState<AdminConfig | null>(null);
   const [providers, setProviders] = useState<AIProvider[]>([]);
-  const [tab, setTab] = useState<'dashboard' | 'ai' | 'games' | 'players' | 'aicountries' | 'units'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'ai' | 'games' | 'players' | 'aicountries' | 'units' | 'accounts'>('dashboard');
   const [testingProvider, setTestingProvider] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<Record<string, string>>({});
 
@@ -32,6 +32,14 @@ const Admin: React.FC = () => {
   // Unit Design state — read-only monitoring (players design their own units now)
   const [unitList, setUnitList] = useState<any[]>([]);
   const [unitRules, setUnitRules] = useState<any>(null);
+
+  // Account management state
+  const [accountList, setAccountList] = useState<any[]>([]);
+  const [accountTotal, setAccountTotal] = useState(0);
+  const [accountSkip, setAccountSkip] = useState(0);
+  const [accountSearch, setAccountSearch] = useState('');
+  const [accountLoading, setAccountLoading] = useState(false);
+  const [autoLoginTried, setAutoLoginTried] = useState(false);
 
   const CATEGORY_LABELS: Record<string, string> = {
     infantry: '步兵', cavalry: '騎兵', artillery: '砲兵', fleet: '艦隊', armored: '裝甲',
@@ -196,6 +204,36 @@ const Admin: React.FC = () => {
     finally { setAiCountryLoading(null); }
   };
 
+  // Auto-login via account binding — try cookie-based login before showing password form
+  useEffect(() => {
+    if (autoLoginTried || authed) return;
+    // If we already have a valid admin token, skip auto-login
+    const existingToken = localStorage.getItem('adminToken');
+    if (existingToken) {
+      setAuthed(true);
+      setAutoLoginTried(true);
+      return;
+    }
+    setAutoLoginTried(true);
+    (async () => {
+      try {
+        const res = await fetch(getApiUrl('/api/admin/login-with-account'), {
+          method: 'POST',
+          credentials: 'include',
+        });
+        if (res.ok) {
+          const data = await res.json();
+          localStorage.setItem('adminToken', data.token);
+          setAuthed(true);
+          loadConfig();
+          loadGames();
+          loadScenarios();
+        }
+      } catch { /* silent fail — will show password form */ }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoLoginTried, authed]);
+
   // Load data when tab changes
   useEffect(() => {
     if (!authed) return;
@@ -203,8 +241,42 @@ const Admin: React.FC = () => {
     if (tab === 'players') loadPlayers(playerSkip);
     if (tab === 'aicountries') loadAICountries();
     if (tab === 'units') { loadUnits(); loadUnitRules(); }
+    if (tab === 'accounts') loadAccounts(accountSkip);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed, tab]);
+
+  const loadAccounts = async (skipVal: number = 0) => {
+    const token = localStorage.getItem('adminToken');
+    if (!token) return;
+    setAccountLoading(true);
+    try {
+      let url = `/api/admin/accounts?limit=50&skip=${skipVal}`;
+      if (accountSearch) url += `&search=${encodeURIComponent(accountSearch)}`;
+      const res = await fetch(getApiUrl(url), { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setAccountList(data.accounts || []);
+        setAccountTotal(data.total || 0);
+      }
+    } catch {}
+    finally { setAccountLoading(false); }
+  };
+
+  const handleToggleAdmin = async (userId: string, currentIsAdmin: boolean) => {
+    const token = localStorage.getItem('adminToken');
+    if (!token) return;
+    try {
+      const res = await fetch(getApiUrl(`/api/admin/accounts/${userId}/set-admin`), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isAdmin: !currentIsAdmin }),
+      });
+      if (res.ok) {
+        // Update local state
+        setAccountList((prev) => prev.map((a) => a.id === userId ? { ...a, isAdmin: !currentIsAdmin } : a));
+      }
+    } catch {}
+  };
 
   const loadUnits = async () => {
     const token = localStorage.getItem('adminToken');
@@ -427,6 +499,13 @@ const Admin: React.FC = () => {
 
   // === Login View ===
   if (!authed) {
+    if (!autoLoginTried) {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#0f1419' }}>
+          <p style={{ color: 'var(--text-muted)' }}>正在驗證帳號權限...</p>
+        </div>
+      );
+    }
     return (
       <div
         style={{
@@ -513,6 +592,7 @@ const Admin: React.FC = () => {
     { key: 'aicountries' as const, label: '♟️ AI 國家管理' },
     { key: 'units' as const, label: '⚔️ 兵種設計' },
     { key: 'players' as const, label: '👥 玩家管理' },
+    { key: 'accounts' as const, label: '🔑 帳號管理' },
   ];
 
   return (
@@ -1140,6 +1220,100 @@ const Admin: React.FC = () => {
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Accounts Tab — manage account-bound admin rights */}
+      {tab === 'accounts' && (
+        <div>
+          <h3 style={{ marginBottom: '1rem' }}>🔑 帳號管理 (共 {accountTotal} 人)</h3>
+
+          {/* Search */}
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+            <input
+              type="text"
+              className="input-field"
+              placeholder="搜尋帳號名稱..."
+              value={accountSearch}
+              onChange={(e) => setAccountSearch(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { setAccountSkip(0); loadAccounts(0); } }}
+              style={{ flex: 1, maxWidth: '300px' }}
+            />
+            <button className="btn-secondary" onClick={() => { setAccountSkip(0); loadAccounts(0); }}>
+              搜尋
+            </button>
+          </div>
+
+          {accountLoading ? (
+            <div className="card"><p style={{ color: 'var(--text-muted)' }}>載入中...</p></div>
+          ) : accountList.length === 0 ? (
+            <div className="card"><p style={{ color: 'var(--text-muted)' }}>尚無帳號資料</p></div>
+          ) : (
+            <div className="card" style={{ overflow: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
+                    <th style={{ padding: '0.5rem' }}>帳號</th>
+                    <th style={{ padding: '0.5rem' }}>Discord ID</th>
+                    <th style={{ padding: '0.5rem' }}>頭像</th>
+                    <th style={{ padding: '0.5rem' }}>管理員</th>
+                    <th style={{ padding: '0.5rem' }}>註冊時間</th>
+                    <th style={{ padding: '0.5rem' }}>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {accountList.map((a) => (
+                    <tr key={a.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                      <td style={{ padding: '0.5rem' }}>{a.username}</td>
+                      <td style={{ padding: '0.5rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>{a.discordId || '—'}</td>
+                      <td style={{ padding: '0.5rem' }}>
+                        {a.avatar ? <img src={a.avatar} alt="" style={{ width: '28px', height: '28px', borderRadius: '50%' }} /> : '—'}
+                      </td>
+                      <td style={{ padding: '0.5rem' }}>
+                        {a.isAdmin ? (
+                          <span style={{ color: '#22c55e' }}>✓ 管理員</span>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)' }}>一般帳號</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '0.5rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                        {a.createdAt ? new Date(a.createdAt).toLocaleString('zh-TW') : '—'}
+                      </td>
+                      <td style={{ padding: '0.5rem' }}>
+                        <button
+                          onClick={() => handleToggleAdmin(a.id, a.isAdmin)}
+                          style={{
+                            padding: '0.35rem 0.8rem',
+                            fontSize: '0.85rem',
+                            borderRadius: '4px',
+                            border: '1px solid var(--border-color)',
+                            cursor: 'pointer',
+                            backgroundColor: a.isAdmin ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)',
+                            color: a.isAdmin ? '#ef4444' : '#22c55e',
+                          }}
+                        >
+                          {a.isAdmin ? '撤銷管理員' : '設為管理員'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {accountSkip > 0 && (
+                <button onClick={() => { const s = Math.max(0, accountSkip - 50); setAccountSkip(s); loadAccounts(s); }} className="btn-secondary" style={{ marginTop: '1rem', marginRight: '0.5rem' }}>
+                  ← 上一頁
+                </button>
+              )}
+              {accountSkip + 50 < accountTotal && (
+                <button onClick={() => { const s = accountSkip + 50; setAccountSkip(s); loadAccounts(s); }} className="btn-secondary" style={{ marginTop: '1rem' }}>
+                  下一頁 →
+                </button>
+              )}
+            </div>
+          )}
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '1rem' }}>
+            被設為管理員的帳號，下次進入後台時可免密碼直接登入。密碼登入方式仍然保留作為備用。
+          </p>
         </div>
       )}
     </div>
