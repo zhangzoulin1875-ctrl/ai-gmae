@@ -5,7 +5,7 @@
  */
 
 import { prisma } from '../lib/prisma.js';
-import { apiQueue } from './api-queue.js';
+import { callLLMWithFallback } from './llm-helper.js';
 import type { AIProvider } from '@wwi/shared';
 
 const DEFAULT_RULES = {
@@ -88,16 +88,6 @@ export class UnitDesignerService {
       }
     }
 
-    // Load AI providers
-    const providers = await this.getProviders();
-    if (providers.length === 0) {
-      return { success: false, error: '未設定 AI 供應商，無法生成兵種設計' };
-    }
-
-    const provider = providers[0];
-    const endpoint = provider.endpoint || 'https://api.openai.com/v1';
-    const apiKey = provider.apiKey;
-
     // Build system prompt with hard rules
     const systemPrompt = `You are a military historian and game designer for a WWI-era (${r.era}) strategy game.
 Design a single military unit based on the user's prompt.
@@ -139,15 +129,15 @@ Respond ONLY with valid JSON:
     const userMsg = `設計一個${CATEGORY_ZH[category]}單位。提示詞: ${prompt}`;
 
     try {
-      // Route through API queue (1 concurrent max)
-      const result = await apiQueue.enqueue(async () => {
-        const res = await fetch(`${endpoint}/chat/completions`, {
-          method: 'POST',
+      // Call LLM with automatic fallback across all providers
+      const llmResult = await callLLMWithFallback(
+        (provider) => ({
+          url: `${provider.endpoint || 'https://api.openai.com/v1'}/chat/completions`,
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`,
+            Authorization: `Bearer ${provider.apiKey}`,
           },
-          body: JSON.stringify({
+          body: {
             model: provider.model,
             temperature: 0.7,
             max_tokens: 1000,
@@ -156,22 +146,17 @@ Respond ONLY with valid JSON:
               { role: 'user', content: userMsg },
             ],
             response_format: { type: 'json_object' },
-          }),
-        });
+          },
+        }),
+        { timeoutMs: 30000, maxRetries: 2 }
+      );
 
-        if (!res.ok) {
-          const err = await res.text();
-          throw new Error(`API returned ${res.status}: ${err}`);
-        }
-
-        const data = await res.json();
-        const content = data.choices?.[0]?.message?.content;
-        if (!content) throw new Error('AI 回應為空');
-        return JSON.parse(content);
-      });
+      if (!llmResult.success) {
+        return { success: false, error: `兵種設計失敗: ${llmResult.error}` };
+      }
 
       // Validate and clamp stats against hard rules
-      const unit = this.clampStats(result, r);
+      const unit = this.clampStats(llmResult.data, r);
 
       // Post-validation: check forbidden techs in generated content
       const fullText = `${unit.nameZh} ${unit.nameEn || ''} ${unit.description || ''}`.toLowerCase();
@@ -306,6 +291,6 @@ Respond ONLY with valid JSON:
   }
 
   getQueueStatus() {
-    return { size: apiQueue.size, processed: apiQueue.processed, isBusy: apiQueue.isBusy };
+    return { size: 0, processed: 0, isBusy: false };
   }
 }

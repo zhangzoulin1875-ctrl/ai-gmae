@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma.js';
-import { apiQueue } from './api-queue.js';
+import { callLLMWithFallback, getEnabledProviders } from './llm-helper.js';
 import type { AIProvider } from '@wwi/shared';
 
 export async function reviewPendingPolicies(gameId: string, turn: number): Promise<void> {
@@ -9,7 +9,7 @@ export async function reviewPendingPolicies(gameId: string, turn: number): Promi
 
   if (pendingPolicies.length === 0) return;
 
-  const providers = await getActiveProviders();
+  const providers = await getEnabledProviders();
 
   // Find next turn country state (turn + 1)
   const nextTurn = turn + 1;
@@ -26,12 +26,7 @@ export async function reviewPendingPolicies(gameId: string, turn: number): Promi
         stabilityChange: 0,
       };
 
-      if (providers.length > 0) {
-        const provider = providers[0];
-        const endpoint = provider.endpoint || 'https://api.openai.com/v1';
-        const apiKey = provider.apiKey;
-
-        const systemPrompt = `You are a government advisor reviewing a policy proposal for a WWI-era nation.
+      const systemPrompt = `You are a government advisor reviewing a policy proposal for a WWI-era nation.
 Evaluate the policy submission and decide whether to approve, partially approve, or reject it based on feasibility and historical context.
 Provide constructive feedback and realistic effects on national resources.
 
@@ -60,14 +55,16 @@ Note: verdict must be "approved", "partial", or "rejected".`;
 
         const userMsg = `國家: ${policy.countryId}, 政策標題: ${policy.title}\n內容:\n${policy.content}`;
 
-        const aiResult = await apiQueue.enqueue(async () => {
-          const res = await fetch(`${endpoint}/chat/completions`, {
-            method: 'POST',
+      if (providers.length > 0) {
+        // Call LLM with automatic fallback across all providers
+        const llmResult = await callLLMWithFallback(
+          (provider) => ({
+            url: `${provider.endpoint || 'https://api.openai.com/v1'}/chat/completions`,
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${apiKey}`,
+              Authorization: `Bearer ${provider.apiKey}`,
             },
-            body: JSON.stringify({
+            body: {
               model: provider.model,
               temperature: 0.7,
               max_tokens: 1000,
@@ -76,35 +73,35 @@ Note: verdict must be "approved", "partial", or "rejected".`;
                 { role: 'user', content: userMsg },
               ],
               response_format: { type: 'json_object' },
-            }),
-          });
+            },
+          }),
+          { timeoutMs: 30000, maxRetries: 2 }
+        );
 
-          if (!res.ok) {
-            const errText = await res.text();
-            throw new Error(`Policy review API returned ${res.status}: ${errText}`);
-          }
-
-          const data = await res.json();
-          const content = data.choices?.[0]?.message?.content;
-          if (!content) throw new Error('AI 回應為空');
-          return JSON.parse(content);
-        });
-
-        const rawVerdict = String(aiResult.verdict || 'partial').toLowerCase();
+        if (!llmResult.success) {
+          // All providers failed — use soft fallback instead of erroring
+          console.warn(`[PolicyReviewer] All LLM providers failed for policy ${policy.id}: ${llmResult.error}`);
+          verdict = 'PARTIAL';
+          reasoning = 'AI 審核暫時不可用，套用預設小幅獎勵';
+          effects = { goldChange: 10, industryChange: 0, manpowerChange: 0, moraleChange: 0, stabilityChange: 1 };
+        } else {
+          const aiResult = llmResult.data;
+          const rawVerdict = String(aiResult.verdict || 'partial').toLowerCase();
         if (rawVerdict.includes('approve')) verdict = 'APPROVED';
         else if (rawVerdict.includes('reject')) verdict = 'REJECTED';
         else verdict = 'PARTIAL';
 
-        reasoning = aiResult.reasoning || '政策審核完成。';
-        const rawFx = aiResult.effects || {};
+          reasoning = aiResult.reasoning || '政策審核完成。';
+          const rawFx = aiResult.effects || {};
 
-        effects = {
-          goldChange: clamp(Number(rawFx.goldChange) || 0, -200, 200),
-          industryChange: clamp(Number(rawFx.industryChange) || 0, -10, 10),
-          manpowerChange: clamp(Number(rawFx.manpowerChange) || 0, -50000, 50000),
-          moraleChange: clamp(Number(rawFx.moraleChange) || 0, -10, 10),
-          stabilityChange: clamp(Number(rawFx.stabilityChange) || 0, -10, 10),
-        };
+          effects = {
+            goldChange: clamp(Number(rawFx.goldChange) || 0, -200, 200),
+            industryChange: clamp(Number(rawFx.industryChange) || 0, -10, 10),
+            manpowerChange: clamp(Number(rawFx.manpowerChange) || 0, -50000, 50000),
+            moraleChange: clamp(Number(rawFx.moraleChange) || 0, -10, 10),
+            stabilityChange: clamp(Number(rawFx.stabilityChange) || 0, -10, 10),
+          };
+        }
       } else {
         // Fallback when no AI provider
         verdict = 'PARTIAL';
@@ -172,41 +169,3 @@ function clamp(val: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, val));
 }
 
-async function getActiveProviders(): Promise<AIProvider[]> {
-  const dbConfigs = await prisma.aIProviderConfig.findMany({
-    where: { isEnabled: true },
-    orderBy: { priority: 'asc' },
-  });
-
-  const providers: AIProvider[] = dbConfigs
-    .map((cfg) => ({
-      id: cfg.id,
-      name: cfg.name,
-      type: cfg.type as any,
-      apiKey: cfg.apiKeyEnc || process.env.OPENAI_API_KEY || '',
-      endpoint: cfg.endpoint || undefined,
-      model: cfg.model,
-      priority: cfg.priority,
-      isEnabled: cfg.isEnabled,
-      timeoutMs: cfg.timeoutMs,
-      maxRetries: cfg.maxRetries,
-    }))
-    .filter((p) => Boolean(p.apiKey));
-
-  if (providers.length === 0 && process.env.OPENAI_API_KEY) {
-    providers.push({
-      id: 'env-openai',
-      name: 'OpenAI (env)',
-      type: 'openai',
-      apiKey: process.env.OPENAI_API_KEY,
-      endpoint: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
-      model: process.env.OPENAI_MODEL || 'gpt-4o',
-      priority: 1,
-      isEnabled: true,
-      timeoutMs: 30000,
-      maxRetries: 2,
-    });
-  }
-
-  return providers;
-}

@@ -1,4 +1,5 @@
 import type { AIProvider, TurnResolution, Order, CountryState } from '@wwi/shared';
+import { callLLMWithFallback } from './llm-helper.js';
 
 interface AIEngineConfig {
   providers: AIProvider[];
@@ -435,18 +436,9 @@ Respond ONLY with valid JSON in this format:
     cavalry: number | null;
     details: string | null;
   }>>> {
-    const enabledProviders = this.config.providers
-      .filter((p) => p.isEnabled)
-      .sort((a, b) => a.priority - b.priority);
-
-    if (enabledProviders.length === 0 || llmCountries.length === 0) {
+    if (llmCountries.length === 0) {
       return {};
     }
-
-    const provider = enabledProviders[0];
-    const endpoint = provider.endpoint || 'https://api.openai.com/v1';
-    const apiKey = this.getApiKey(provider);
-    if (!apiKey) return {};
 
     // Build a compact prompt — all countries in one request
     const systemPrompt = `You are the strategic AI for a WWI strategy game. You control ${llmCountries.length} countries simultaneously.
@@ -501,34 +493,33 @@ Key strategic principles:
     const userMsg = JSON.stringify({ turn, world: worldBrief, countries: countriesBrief });
 
     try {
-      const res = await fetch(`${endpoint}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: provider.model,
-          temperature: 0.7,
-          max_tokens: 4000, // limit output to control cost
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userMsg },
-          ],
-          response_format: { type: 'json_object' },
+      const llmResult = await callLLMWithFallback(
+        (provider) => ({
+          url: `${provider.endpoint || 'https://api.openai.com/v1'}/chat/completions`,
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.getApiKey(provider)}`,
+          },
+          body: {
+            model: provider.model,
+            temperature: 0.7,
+            max_tokens: 4000,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userMsg },
+            ],
+            response_format: { type: 'json_object' },
+          },
         }),
-      });
+        { timeoutMs: 45000, maxRetries: 2 }
+      );
 
-      if (!res.ok) {
-        console.warn(`[AI Engine] Batch orders API returned ${res.status}`);
+      if (!llmResult.success) {
+        console.warn(`[AI Engine] Batch orders all providers failed: ${llmResult.error}`);
         return {};
       }
 
-      const data = await res.json();
-      const content = data.choices?.[0]?.message?.content;
-      if (!content) return {};
-
-      const parsed = JSON.parse(content);
+      const parsed = llmResult.data;
       const ordersMap = parsed.orders || {};
       const result: Record<string, Array<any>> = {};
 

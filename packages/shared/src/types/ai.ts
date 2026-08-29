@@ -1,7 +1,7 @@
 export interface AIProvider {
   id: string;
   name: string;
-  type: 'openai' | 'anthropic' | 'custom' | 'deterministic';
+  type: 'openai' | 'anthropic' | 'google' | 'custom' | 'deterministic';
   apiKey?: string;
   endpoint?: string;
   model: string;
