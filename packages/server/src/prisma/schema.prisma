@@ -81,9 +81,11 @@ model Order {
   type            String
   fromTerritoryId String?
   targetTerritoryId String?
-  infantry        Int?
-  artillery       Int?
-  cavalry         Int?
+  infantry        Int?      // legacy, unused by new division-based combat
+  artillery       Int?      // legacy, unused by new division-based combat
+  cavalry         Int?      // legacy, unused by new division-based combat
+  divisionIds     String[] @default([]) // ATTACK/DEFEND/MOVE — divisions dispatched on this order
+  recruitComposition Json?               // RECRUIT — { [customUnitId]: quantity }
   details         String?
   status          String   @default("PENDING")
   isAIOrder       Boolean  @default(false)
@@ -146,6 +148,9 @@ model CustomUnit {
   designedByUserId    String?
   designedByUsername  String?
   designedByCountryId String?
+  // System-seeded default units (standard infantry/artillery/cavalry) — available to
+  // every country from game start, cannot be deleted by players
+  isSystemDefault     Boolean  @default(false)
 
   @@map("custom_units")
 }
@@ -169,4 +174,61 @@ model UnitDesignRule {
   updatedAt       DateTime @updatedAt
 
   @@map("unit_design_rules")
+}
+
+
+model CountryUnitStock {
+  id           String   @id @default(uuid())
+  gameId       String
+  countryId    String
+  customUnitId String
+  quantity     Int      @default(0)
+  updatedAt    DateTime @updatedAt
+
+  @@unique([gameId, countryId, customUnitId])
+  @@map("country_unit_stocks")
+}
+
+model Division {
+  id          String   @id @default(uuid())
+  gameId      String
+  countryId   String
+  name        String
+  composition Json     // { [customUnitId]: quantity }
+  status      String   @default("ACTIVE") // ACTIVE | DISBANDED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("divisions")
+}
+
+model PolicySubmission {
+  id         String   @id @default(uuid())
+  gameId     String
+  countryId  String
+  playerId   String
+  turn       Int
+  title      String
+  content    String
+  status     String   @default("PENDING") // PENDING | APPROVED | PARTIAL | REJECTED
+  aiVerdict  String?
+  effects    Json?    // { goldChange, industryChange, manpowerChange, moraleChange, stabilityChange }
+  createdAt  DateTime @default(now())
+
+  @@map("policy_submissions")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  gameId    String
+  countryId String
+  playerId  String?
+  turn      Int
+  type      String   // BATTLE | POLICY | RECRUIT | ECONOMY | SYSTEM | AI_ORDER
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("notifications")
 }
