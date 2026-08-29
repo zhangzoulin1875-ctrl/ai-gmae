@@ -9,8 +9,8 @@
   --text-main: #e6e8eb;
   --text-muted: #9ba3af;
   --border-color: #34404e;
-  --font-heading: 'Cinzel', serif;
-  --font-body: 'Inter', sans-serif;
+  --font-heading: 'Cinzel', 'Noto Sans TC', serif;
+  --font-body: 'Inter', 'Noto Sans TC', sans-serif;
 }
 
 * {

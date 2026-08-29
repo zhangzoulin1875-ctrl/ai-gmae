@@ -30,10 +30,10 @@ const Admin: React.FC = () => {
         setAuthed(true);
         loadConfig();
       } else {
-        setError(data.error || 'Authentication failed');
+        setError(data.error || '驗證失敗');
       }
     } catch (err: any) {
-      setError(err.message || 'Connection error');
+      setError(err.message || '連線錯誤');
     } finally {
       setLoading(false);
     }
@@ -51,7 +51,7 @@ const Admin: React.FC = () => {
         setProviders(data.aiConfig?.fallbackChain?.providers || []);
       }
     } catch (err) {
-      console.error('Failed to load config');
+      console.error('載入設定失敗');
     }
   };
 
@@ -64,7 +64,7 @@ const Admin: React.FC = () => {
   const addProvider = () => {
     const newProvider: AIProvider = {
       id: `provider-${Date.now()}`,
-      name: 'New Provider',
+      name: '新供應商',
       type: 'openai',
       apiKey: '',
       endpoint: 'https://api.openai.com/v1',
@@ -117,11 +117,11 @@ const Admin: React.FC = () => {
       });
       if (res.ok) {
         setError('');
-        setTestResult({ _save: 'Saved successfully!' });
+        setTestResult({ _save: '儲存成功!' });
         setTimeout(() => setTestResult({}), 3000);
       } else {
         const data = await res.json();
-        setError(data.error || 'Failed to save');
+        setError(data.error || '儲存失敗');
       }
     } catch (err: any) {
       setError(err.message);
@@ -147,7 +147,7 @@ const Admin: React.FC = () => {
       const data = await res.json();
       setTestResult((prev) => ({
         ...prev,
-        [id]: data.success ? '✓ Connected' : `✗ ${data.error}`,
+        [id]: data.success ? '✓ 連線成功' : `✗ ${data.error}`,
       }));
     } catch (err: any) {
       setTestResult((prev) => ({ ...prev, [id]: `✗ ${err.message}` }));
@@ -171,9 +171,9 @@ const Admin: React.FC = () => {
         }}
       >
         <div className="card" style={{ maxWidth: '420px', width: '100%' }}>
-          <h2 style={{ textAlign: 'center', marginBottom: '0.5rem' }}>⚙ Admin Control Panel</h2>
+          <h2 style={{ textAlign: 'center', marginBottom: '0.5rem' }}>⚙ 管理員控制台</h2>
           <p style={{ color: 'var(--text-muted)', textAlign: 'center', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
-            Authorized personnel only
+            僅限授權人員進入
           </p>
           {error && (
             <div
@@ -193,7 +193,7 @@ const Admin: React.FC = () => {
           <form onSubmit={handleLogin}>
             <input
               type="password"
-              placeholder="Enter admin password"
+              placeholder="請輸入管理員密碼"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               style={{
@@ -223,12 +223,12 @@ const Admin: React.FC = () => {
                 cursor: 'pointer',
               }}
             >
-              {loading ? 'Authenticating...' : 'Access Admin'}
+              {loading ? '驗證中...' : '進入管理後台'}
             </button>
           </form>
           <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
             <a href="/" style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-              ← Back to game
+              ← 返回遊戲
             </a>
           </div>
         </div>
@@ -238,10 +238,10 @@ const Admin: React.FC = () => {
 
   // === Admin Panel View ===
   const tabs = [
-    { key: 'dashboard' as const, label: '📊 Dashboard' },
-    { key: 'ai' as const, label: '🤖 AI Config' },
-    { key: 'games' as const, label: '🎮 Games' },
-    { key: 'players' as const, label: '👥 Players' },
+    { key: 'dashboard' as const, label: '📊 儀表板' },
+    { key: 'ai' as const, label: '🤖 AI 設定' },
+    { key: 'games' as const, label: '🎮 戰局管理' },
+    { key: 'players' as const, label: '👥 玩家管理' },
   ];
 
   return (
@@ -257,7 +257,7 @@ const Admin: React.FC = () => {
           paddingBottom: '1rem',
         }}
       >
-        <h2 style={{ margin: 0 }}>⚙ Admin Control Panel</h2>
+        <h2 style={{ margin: 0 }}>⚙ 管理員控制台</h2>
         <button
           onClick={() => {
             localStorage.removeItem('adminToken');
@@ -265,7 +265,7 @@ const Admin: React.FC = () => {
           }}
           className="btn-secondary"
         >
-          Logout
+          登出
         </button>
       </div>
 
@@ -310,19 +310,19 @@ const Admin: React.FC = () => {
       {tab === 'dashboard' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
           <div className="card">
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Active Games</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>進行中戰局</p>
             <p style={{ fontSize: '2rem', fontWeight: 700 }}>—</p>
           </div>
           <div className="card">
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Online Players</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>在線玩家</p>
             <p style={{ fontSize: '2rem', fontWeight: 700 }}>—</p>
           </div>
           <div className="card">
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>API Calls Today</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>今日 API 呼叫次數</p>
             <p style={{ fontSize: '2rem', fontWeight: 700 }}>—</p>
           </div>
           <div className="card">
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Next Turn</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>下次回合結算</p>
             <p style={{ fontSize: '1.5rem', fontWeight: 700 }}>—</p>
           </div>
         </div>
@@ -332,18 +332,18 @@ const Admin: React.FC = () => {
       {tab === 'ai' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <h3>AI Provider Fallback Chain</h3>
+            <h3>AI 供應商降級鏈</h3>
             <button onClick={addProvider} style={{ padding: '0.5rem 1rem', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-              + Add Provider
+              + 新增供應商
             </button>
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem' }}>
-            Providers are tried in order. If one fails, the next is used. If all fail, deterministic fallback runs.
+            系統會依序嘗試各供應商,若失敗則自動切換至下一個。全部失敗時將使用確定性規則降級結算。
           </p>
 
           {providers.length === 0 && (
             <div className="card" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
-              No providers configured. Click "Add Provider" to begin.
+              尚未設定任何供應商,請點擊「新增供應商」開始設定。
             </div>
           )}
 
@@ -397,7 +397,7 @@ const Admin: React.FC = () => {
                         cursor: 'pointer',
                       }}
                     >
-                      {provider.isEnabled ? '● Enabled' : '○ Disabled'}
+                      {provider.isEnabled ? '● 已啟用' : '○ 已停用'}
                     </button>
                     <button onClick={() => removeProvider(provider.id)} style={{ padding: '0.25rem 0.5rem', color: '#ef4444', background: 'transparent', border: '1px solid #ef4444', borderRadius: '4px', cursor: 'pointer' }}>
                       ✕
@@ -407,19 +407,19 @@ const Admin: React.FC = () => {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                   <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Type</label>
+                    <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>類型</label>
                     <select
                       value={provider.type}
                       onChange={(e) => updateProvider(provider.id, { type: e.target.value as AIProvider['type'] })}
                       style={{ width: '100%', padding: '0.5rem', backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)', borderRadius: '4px', color: 'var(--text)' }}
                     >
-                      <option value="openai">OpenAI Compatible</option>
-                      <option value="custom">Custom (OpenAI format)</option>
-                      <option value="deterministic">Deterministic (no AI)</option>
+                      <option value="openai">OpenAI 相容格式</option>
+                      <option value="custom">自訂 (OpenAI 格式)</option>
+                      <option value="deterministic">確定性規則 (無 AI)</option>
                     </select>
                   </div>
                   <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Model</label>
+                    <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>模型</label>
                     <input
                       type="text"
                       value={provider.model}
@@ -429,7 +429,7 @@ const Admin: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>API Key</label>
+                    <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>API 金鑰</label>
                     <input
                       type="password"
                       value={provider.apiKey || ''}
@@ -439,7 +439,7 @@ const Admin: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Base URL</label>
+                    <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>API 位址</label>
                     <input
                       type="text"
                       value={provider.endpoint || ''}
@@ -449,7 +449,7 @@ const Admin: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Timeout (ms)</label>
+                    <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>逾時時間 (毫秒)</label>
                     <input
                       type="number"
                       value={provider.timeoutMs}
@@ -458,7 +458,7 @@ const Admin: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Max Retries</label>
+                    <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>最大重試次數</label>
                     <input
                       type="number"
                       value={provider.maxRetries}
@@ -474,7 +474,7 @@ const Admin: React.FC = () => {
                     disabled={testingProvider === provider.id}
                     className="btn-secondary"
                   >
-                    {testingProvider === provider.id ? 'Testing...' : 'Test Connection'}
+                    {testingProvider === provider.id ? '測試中...' : '測試連線'}
                   </button>
                   {testResult[provider.id] && (
                     <span style={{ fontSize: '0.85rem', color: testResult[provider.id].startsWith('✓') ? '#22c55e' : '#ef4444' }}>
@@ -492,7 +492,7 @@ const Admin: React.FC = () => {
                 disabled={loading}
                 style={{ padding: '0.75rem 2rem', backgroundColor: '#22c55e', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '1rem', fontWeight: 600, cursor: 'pointer' }}
               >
-                {loading ? 'Saving...' : 'Save Configuration'}
+                {loading ? '儲存中...' : '儲存設定'}
               </button>
               {testResult._save && (
                 <span style={{ marginLeft: '1rem', color: '#22c55e' }}>{testResult._save}</span>
@@ -505,16 +505,16 @@ const Admin: React.FC = () => {
       {/* Games Tab */}
       {tab === 'games' && (
         <div className="card">
-          <h3>Active Games</h3>
-          <p style={{ color: 'var(--text-muted)' }}>Loading game data...</p>
+          <h3>進行中戰局</h3>
+          <p style={{ color: 'var(--text-muted)' }}>戰局資料載入中...</p>
         </div>
       )}
 
       {/* Players Tab */}
       {tab === 'players' && (
         <div className="card">
-          <h3>Player Management</h3>
-          <p style={{ color: 'var(--text-muted)' }}>Loading player data...</p>
+          <h3>玩家管理</h3>
+          <p style={{ color: 'var(--text-muted)' }}>玩家資料載入中...</p>
         </div>
       )}
     </div>

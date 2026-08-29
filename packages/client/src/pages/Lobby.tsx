@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GameRoom, WWI_COUNTRIES, CountryDefinition } from '@wwi/shared';
+import { GameRoom, WWI_COUNTRIES, CountryDefinition, SIDE_LABELS_ZH } from '@wwi/shared';
 
 const Lobby: React.FC = () => {
   const navigate = useNavigate();
@@ -37,7 +37,7 @@ const Lobby: React.FC = () => {
         setGames(data.games || []);
       }
     } catch (err) {
-      console.error('Failed to load games', err);
+      console.error('載入戰局失敗', err);
     } finally {
       setLoading(false);
     }
@@ -67,7 +67,7 @@ const Lobby: React.FC = () => {
         navigate(`/game/${game.id}`);
       }
     } catch (err) {
-      console.error('Failed to create game', err);
+      console.error('建立戰局失敗', err);
     }
   };
 
@@ -85,11 +85,11 @@ const Lobby: React.FC = () => {
   return (
     <div>
       <header className="navbar">
-        <h2 style={{ fontSize: '1.4rem' }}>1914 WAR ROOM LOBBY</h2>
+        <h2 style={{ fontSize: '1.4rem' }}>1914 戰情室大廳</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          {user && <span>Commander <strong>{user.username}</strong></span>}
-          <button className="btn-secondary" onClick={() => navigate('/admin')}>Admin Panel</button>
-          <button className="btn-secondary" onClick={handleLogout}>Logout</button>
+          {user && <span>指揮官 <strong>{user.username}</strong></span>}
+          <button className="btn-secondary" onClick={() => navigate('/admin')}>管理員後台</button>
+          <button className="btn-secondary" onClick={handleLogout}>登出</button>
         </div>
       </header>
 
@@ -98,14 +98,14 @@ const Lobby: React.FC = () => {
           {/* Main Games List */}
           <div>
             <h3 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
-              ACTIVE CAMPAIGNS ({games.length})
+              進行中的戰局 ({games.length})
             </h3>
 
             {loading ? (
-              <p>Loading active campaigns...</p>
+              <p>正在載入戰局清單...</p>
             ) : games.length === 0 ? (
               <div className="card" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
-                <p style={{ color: 'var(--text-muted)' }}>No active campaigns available. Start a new campaign on the right!</p>
+                <p style={{ color: 'var(--text-muted)' }}>目前沒有進行中的戰局,在右側建立一個新的戰局吧!</p>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -114,11 +114,11 @@ const Lobby: React.FC = () => {
                     <div>
                       <h4 style={{ fontSize: '1.2rem', color: 'var(--text-main)', marginBottom: '0.25rem' }}>{game.name}</h4>
                       <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                        Turn {game.currentTurn} | Status: <span style={{ color: 'var(--accent-gold)' }}>{game.status}</span> | Players: {game.players.length}/{game.maxPlayers}
+                        第 {game.currentTurn} 回合 | 狀態: <span style={{ color: 'var(--accent-gold)' }}>{game.status}</span> | 玩家: {game.players.length}/{game.maxPlayers}
                       </p>
                     </div>
                     <button className="btn-primary" onClick={() => handleJoinGame(game.id)}>
-                      Enter War Room
+                      進入戰情室
                     </button>
                   </div>
                 ))}
@@ -129,16 +129,16 @@ const Lobby: React.FC = () => {
           {/* Create Game Sidebar */}
           <div>
             <div className="card">
-              <h3 style={{ marginBottom: '1rem', fontSize: '1.2rem' }}>CREATE NEW CAMPAIGN</h3>
+              <h3 style={{ marginBottom: '1rem', fontSize: '1.2rem' }}>建立新戰局</h3>
               <form onSubmit={handleCreateGame} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
-                    Campaign Title
+                    戰局名稱
                   </label>
                   <input
                     type="text"
                     className="input-field"
-                    placeholder="e.g. Western Front 1914"
+                    placeholder="例如:1914 西線戰役"
                     value={newGameName}
                     onChange={(e) => setNewGameName(e.target.value)}
                     required
@@ -147,7 +147,7 @@ const Lobby: React.FC = () => {
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
-                    Select Your Nation ({WWI_COUNTRIES.length} Available)
+                    選擇您的國家(共 {WWI_COUNTRIES.length} 個)
                   </label>
                   <select
                     className="input-field"
@@ -156,14 +156,14 @@ const Lobby: React.FC = () => {
                   >
                     {WWI_COUNTRIES.map((c: CountryDefinition) => (
                       <option key={c.id} value={c.id}>
-                        {c.flagIcon} {c.name} ({c.side.toUpperCase()})
+                        {c.flagIcon} {c.nameZh} ({SIDE_LABELS_ZH[c.side]})
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <button type="submit" className="btn-primary" style={{ marginTop: '0.5rem', justifyContent: 'center' }}>
-                  Mobilize Campaign
+                  動員並開戰
                 </button>
               </form>
             </div>
