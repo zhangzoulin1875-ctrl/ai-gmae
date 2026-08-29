@@ -302,9 +302,12 @@ router.get('/my-units', authMiddleware, async (req: any, res) => {
     const myPlayer = game.players.find((p) => p.userId === req.user.id);
     if (!myPlayer) return res.status(403).json({ error: '你尚未選擇國家' });
 
+    // Only show units designed in THIS game — no cross-game leakage.
+    // System defaults (gameId=null) are NOT player units and are shown
+    // via the military /state endpoint, not here.
     const units = await prisma.customUnit.findMany({
       where: {
-        OR: [{ gameId: game.id }, { gameId: null }],
+        gameId: game.id,
         designedByUserId: req.user.id,
       },
       orderBy: { category: 'asc' },

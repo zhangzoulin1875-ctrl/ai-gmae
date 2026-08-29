@@ -178,6 +178,27 @@ router.post('/games', adminAuth, async (req, res) => {
       return res.status(409).json({ error: `已有進行中的戰局「${existing.name}」,請先結束才能開啟新戰局` });
     }
 
+    // Clean up any orphaned data from COMPLETED games (defensive — the end
+    // endpoint should have already wiped it, but this catches edge cases
+    // like crashes mid-cleanup or manual DB edits).
+    const completedGames = await prisma.gameRoom.findMany({
+      where: { status: 'COMPLETED' },
+      select: { id: true },
+    });
+    if (completedGames.length > 0) {
+      const oldIds = completedGames.map((g) => g.id);
+      await prisma.notification.deleteMany({ where: { gameId: { in: oldIds } } });
+      await prisma.policySubmission.deleteMany({ where: { gameId: { in: oldIds } } });
+      await prisma.order.deleteMany({ where: { gameId: { in: oldIds } } });
+      await prisma.turnResolution.deleteMany({ where: { gameId: { in: oldIds } } });
+      await prisma.division.deleteMany({ where: { gameId: { in: oldIds } } });
+      await prisma.countryUnitStock.deleteMany({ where: { gameId: { in: oldIds } } });
+      await prisma.countryState.deleteMany({ where: { gameId: { in: oldIds } } });
+      await prisma.customUnit.deleteMany({ where: { gameId: { in: oldIds }, isSystemDefault: false } });
+      await prisma.player.deleteMany({ where: { gameId: { in: oldIds } } });
+      console.log(`[Admin] Cleaned up data from ${oldIds.length} completed game(s)`);
+    }
+
     const game = await prisma.gameRoom.create({
       data: { name: name.trim(), status: 'ACTIVE' },
     });
@@ -191,10 +212,26 @@ router.post('/games', adminAuth, async (req, res) => {
   }
 });
 
-// End the current game, freeing things up for a new one
+// End the current game and wipe ALL game-scoped data to prevent
+// cross-game pollution. System default units (gameId=null) are preserved.
 router.post('/games/:gameId/end', adminAuth, async (req, res) => {
   try {
     const { gameId } = req.params;
+
+    // Delete all game-scoped data in the correct order (respecting FK constraints)
+    await prisma.notification.deleteMany({ where: { gameId } });
+    await prisma.policySubmission.deleteMany({ where: { gameId } });
+    await prisma.order.deleteMany({ where: { gameId } });
+    await prisma.turnResolution.deleteMany({ where: { gameId } });
+    await prisma.division.deleteMany({ where: { gameId } });
+    await prisma.countryUnitStock.deleteMany({ where: { gameId } });
+    await prisma.countryState.deleteMany({ where: { gameId } });
+    // Delete player-designed units from this game (system defaults have gameId=null, preserved)
+    await prisma.customUnit.deleteMany({ where: { gameId, isSystemDefault: false } });
+    // Delete players (country assignments)
+    await prisma.player.deleteMany({ where: { gameId } });
+
+    // Mark game as completed
     const game = await prisma.gameRoom.update({
       where: { id: gameId },
       data: { status: 'COMPLETED' },

@@ -53,6 +53,12 @@ export class UnitDesignerService {
   }> {
     const { prompt, category, gameId, userId, username, countryId } = params;
 
+    // Player-designed units MUST be scoped to a game — no gameId means
+    // it's a system default, which should only be created via military-init.
+    if (!gameId) {
+      return { success: false, error: '設計兵種需要有效的戰局 ID' };
+    }
+
     if (!CATEGORIES.includes(category as Category)) {
       return { success: false, error: `無效的兵種類別，允許: ${CATEGORIES.join(', ')}` };
     }
@@ -67,7 +73,7 @@ export class UnitDesignerService {
     // Check category count limit — PER PLAYER, not global
     // (each player designs their own roster; one player's units don't block another's)
     const existingCount = await prisma.customUnit.count({
-      where: { category, gameId: gameId || null, designedByUserId: userId },
+      where: { category, gameId: gameId, designedByUserId: userId },
     });
     if (existingCount >= r.maxPerCategory) {
       return { success: false, error: `你的${CATEGORY_ZH[category]}已達上限（${r.maxPerCategory} 種）` };
@@ -178,7 +184,7 @@ Respond ONLY with valid JSON:
       // Save to DB — with designer attribution
       const saved = await prisma.customUnit.create({
         data: {
-          gameId: gameId || null,
+          gameId: gameId,
           category,
           nameZh: unit.nameZh,
           nameEn: unit.nameEn || null,

@@ -112,11 +112,14 @@ router.get('/state', authMiddleware, async (req: any, res) => {
     });
 
     // 4. Available CustomUnits for recruitment
+    // System defaults (gameId=null, isSystemDefault=true) are global and
+    // available to everyone. Player-designed units are scoped to the
+    // current game only — no cross-game leakage.
     const availableUnits = await prisma.customUnit.findMany({
       where: {
         OR: [
           { isSystemDefault: true },
-          { designedByUserId: req.user.id },
+          { designedByUserId: req.user.id, gameId: game.id },
         ],
       },
       orderBy: { category: 'asc' },
@@ -172,6 +175,13 @@ router.post('/recruit', authMiddleware, async (req: any, res) => {
       }
       if (!u.isSystemDefault && u.designedByUserId !== req.user.id) {
         return res.status(403).json({ error: `無權限招募兵種「${u.nameZh}」` });
+      }
+      // Reject units from other games — no cross-game pollution
+      if (!u.isSystemDefault && u.gameId && u.gameId !== game.id) {
+        return res.status(403).json({ error: `兵種「${u.nameZh}」屬於其他戰局，無法在本局招募` });
+      }
+      if (!u.isSystemDefault && !u.gameId) {
+        return res.status(403).json({ error: `兵種「${u.nameZh}」未綁定至本戰局，無法招募` });
       }
     }
 
