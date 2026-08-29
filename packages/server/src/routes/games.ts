@@ -329,6 +329,37 @@ router.post('/:id/ai-suggest', authMiddleware, async (req: any, res) => {
   }
 });
 
+// DELETE /api/games/:id/orders/:orderId — withdraw a pending order
+router.delete('/:id/orders/:orderId', authMiddleware, async (req: any, res) => {
+  try {
+    const game = await prisma.gameRoom.findUnique({
+      where: { id: req.params.id },
+      include: { players: true },
+    });
+    if (!game) return res.status(404).json({ error: '找不到戰局' });
+    if (game.status !== 'ACTIVE') return res.status(400).json({ error: '戰局不在進行中' });
+
+    const player = game.players.find((p) => p.userId === req.user.id);
+    if (!player) return res.status(403).json({ error: '你未加入此戰局' });
+
+    const order = await prisma.order.findUnique({
+      where: { id: req.params.orderId },
+    });
+
+    if (!order) return res.status(404).json({ error: '找不到指令' });
+    if (order.playerId !== player.id) return res.status(403).json({ error: '只能撤回自己的指令' });
+    if (order.status !== 'PENDING') return res.status(400).json({ error: '已結算的指令無法撤回' });
+    if (order.turn !== game.currentTurn) return res.status(400).json({ error: '只能撤回本回合指令' });
+
+    await prisma.order.delete({ where: { id: req.params.orderId } });
+
+    res.json({ success: true, message: '指令已撤回' });
+  } catch (error: any) {
+    console.error('[Games] delete order error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POST /api/games/:id/ready — mark ready
 router.post('/:id/ready', authMiddleware, async (req: any, res) => {
   try {

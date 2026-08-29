@@ -495,6 +495,24 @@ const Game: React.FC = () => {
     setAiSuggestions([]);
   };
 
+  // Withdraw a pending order
+  const handleWithdrawOrder = async (orderId: string) => {
+    if (!gameId) return;
+    try {
+      const res = await apiFetch(`/api/games/${gameId}/orders/${orderId}`, { method: 'DELETE' });
+      if (res.ok) {
+        setMessage('✓ 指令已撤回');
+        setTimeout(() => setMessage(null), 3000);
+        fetchOrders();
+      } else {
+        const data = await res.json();
+        setFormError(data.error || '撤回失敗');
+      }
+    } catch (err: any) {
+      setFormError('撤回失敗: ' + (err.message || '未知錯誤'));
+    }
+  };
+
   const handleSendChat = (e: React.FormEvent) => {
     e.preventDefault();
     if (!socket || !gameId || !chatInput.trim()) return;
@@ -1140,13 +1158,28 @@ const Game: React.FC = () => {
                 <h3 style={{ marginBottom: '1rem' }}>本回合已下達指令 ({myOrders.length})</h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                   {myOrders.map((o, i) => (
-                    <div key={o.id || i} style={{ padding: '0.5rem 0.75rem', borderLeft: '3px solid var(--accent-gold)', backgroundColor: 'var(--bg-tertiary)', fontSize: '0.85rem' }}>
-                      <strong>{ORDER_TYPE_LABELS[o.type]}</strong>
-                      {o.targetTerritoryId && <span> → {getCountryName(o.targetTerritoryId)}</span>}
-                      {o.details && <span style={{ color: 'var(--text-muted)' }}> ({o.details})</span>}
-                      <span style={{ color: o.status === 'PENDING' ? '#facc15' : '#22c55e', float: 'right' }}>
-                        {o.status === 'PENDING' ? '待結算' : '已結算'}
-                      </span>
+                    <div key={o.id || i} style={{ padding: '0.5rem 0.75rem', borderLeft: '3px solid var(--accent-gold)', backgroundColor: 'var(--bg-tertiary)', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <strong>{ORDER_TYPE_LABELS[o.type]}</strong>
+                        {o.targetTerritoryId && <span> → {getCountryName(o.targetTerritoryId)}</span>}
+                        {o.details && <span style={{ color: 'var(--text-muted)' }}> ({o.details})</span>}
+                        <span style={{ color: o.status === 'PENDING' ? '#facc15' : '#22c55e', marginLeft: '0.5rem' }}>
+                          {o.status === 'PENDING' ? '待結算' : '已結算'}
+                        </span>
+                      </div>
+                      {o.status === 'PENDING' && o.id && (
+                        <button
+                          type="button"
+                          onClick={() => handleWithdrawOrder(o.id)}
+                          style={{
+                            padding: '0.2rem 0.6rem', fontSize: '0.75rem',
+                            background: 'transparent', border: '1px solid #ef4444',
+                            color: '#ef4444', borderRadius: '0.25rem', cursor: 'pointer',
+                          }}
+                        >
+                          撤回
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
