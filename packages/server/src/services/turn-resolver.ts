@@ -121,6 +121,22 @@ export class TurnResolver {
           maxTotalTimeoutMs: 60000,
         });
 
+        // Build alliance map for this game
+        const allianceMembers = await prisma.allianceMember.findMany({
+          where: { gameId, status: { in: ['MEMBER', 'LEADER'] } },
+        });
+        const allianceGroups = new Map<string, string[]>();
+        for (const m of allianceMembers) {
+          if (!allianceGroups.has(m.allianceId)) allianceGroups.set(m.allianceId, []);
+          allianceGroups.get(m.allianceId)!.push(m.countryId);
+        }
+        const countryAllianceMap = new Map<string, string[]>(); // countryId -> list of ally countryIds
+        for (const [, members] of allianceGroups) {
+          for (const cid of members) {
+            countryAllianceMap.set(cid, members.filter((m) => m !== cid));
+          }
+        }
+
         const worldStateRecord: Record<string, any> = {};
         for (const [cid, cs] of stateMap) {
           const countryDef = WWI_COUNTRIES.find((c) => c.id === cid);
@@ -128,7 +144,8 @@ export class TurnResolver {
           worldStateRecord[cid] = {
             countryId: cid,
             name: countryDef?.nameZh || cid,
-            side: countryDef?.side || 'neutral',
+            side: 'free', // legacy field, kept for AI prompt compatibility
+            allies: countryAllianceMap.get(cid) || [],
             morale: cs.morale, gold: cs.gold, industry: cs.industry,
             manpower: cs.manpower, stability: cs.stability,
             territories: cs.territories, isAIControlled: cs.isAIControlled,

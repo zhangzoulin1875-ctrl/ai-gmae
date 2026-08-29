@@ -237,7 +237,8 @@ Respond ONLY with valid JSON in this format:
       worldState: Object.values(worldState).map((s: any) => ({
         countryId: s.countryId,
         name: s.name || s.countryId,
-        side: s.side || 'neutral',
+        side: s.side || 'free',
+        allies: s.allies || [],
         infantry: s.infantry ?? s.manpower ?? 0,
         artillery: s.artillery ?? 0,
         cavalry: s.cavalry ?? 0,
@@ -459,10 +460,11 @@ Respond ONLY with valid JSON:
 }
 
 Key strategic principles:
+- Countries in the same alliance are allies; all others are potential enemies
 - Attack the weakest enemy neighbor with overwhelming force
 - Defend when outnumbered or low morale
 - Recruit when resources are abundant
-- Coordinate same-side allies (Central Powers vs Entente)
+- Coordinate with alliance members (check the 'allies' array for each country)
 - Be decisive — don't waste turns`;
 
     // Compress world state to reduce tokens

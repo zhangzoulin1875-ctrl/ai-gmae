@@ -36,16 +36,12 @@ const DEV_FACTOR: Record<string, number> = {
 };
 
 /**
- * Starting morale/stability baseline by side — these represent
- * political conditions at war outbreak, not economic capacity,
- * so they stay tiered rather than population-driven.
+ * Starting morale/stability baseline — all countries start at the same
+ * base. The old fixed-side morale tiers (Central Powers vs Entente) have
+ * been removed in favor of the free-form alliance system. Countries
+ * differentiate through gameplay, not historical faction assignment.
  */
-const SIDE_MORALE: Record<string, number> = {
-  central: 75,  // Central Powers — well-prepared, high initial morale
-  entente: 75,   // Entente — same for major powers
-  allies: 65,    // Co-belligerents — joining the fight
-  neutral: 60,   // Neutrals — stable but unmotivated
-};
+const BASE_MORALE = 65;
 
 /**
  * Compute initial resources for a country based on its real territory
@@ -64,7 +60,6 @@ const SIDE_MORALE: Record<string, number> = {
  */
 function computeInitialResources(countryId: string, areaKm2: number, population: number) {
   const D = DEV_FACTOR[countryId] ?? 0.2;
-  const side = WWI_COUNTRIES.find(c => c.id === countryId)?.side ?? 'neutral';
 
   const industry = Math.min(150, Math.max(5, Math.round((population / 1_000_000) * 0.5 * D)));
   const manpower = Math.round(population * 0.025);
@@ -72,8 +67,8 @@ function computeInitialResources(countryId: string, areaKm2: number, population:
   const infantry = Math.round(population * 0.006);
   const artillery = Math.round((infantry / 1000) * D);
   const cavalry = Math.round(infantry / 5000);
-  const morale = SIDE_MORALE[side] ?? 60;
-  const stability = SIDE_MORALE[side] ?? 60;
+  const morale = BASE_MORALE;
+  const stability = BASE_MORALE;
 
   return { industry, manpower, gold, infantry, artillery, cavalry, morale, stability };
 }

@@ -570,7 +570,6 @@ router.get('/games/:gameId/countries', adminAuth, async (req, res) => {
         countryId: c.id,
         nameZh: c.nameZh,
         flagIcon: c.flagIcon,
-        side: c.side,
         controller: player
           ? { type: player.isAI ? 'ai' : 'human', username: player.user.username, isReady: player.isReady, mode: player.aiPersonality || 'formula' }
           : { type: 'empty' },

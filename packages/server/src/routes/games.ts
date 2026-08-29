@@ -5,6 +5,7 @@ import { RuleBasedAI } from '../services/rule-based-ai.js';
 import { TECH_TREE, computeTechCost } from '@wwi/shared';
 import { validateCountryName } from '@wwi/shared';
 import { checkTechEligibility, aggregateTechEffects } from '../lib/tech-effects.js';
+import allianceRouter from './alliances.js';
 import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
@@ -615,5 +616,8 @@ router.delete('/delete-unit/:id', authMiddleware, async (req: any, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Alliance routes — mounted at /api/games/:id/alliances
+router.use('/:id/alliances', allianceRouter);
 
 export default router;

@@ -37,9 +37,28 @@ export class AIPlayerService {
     // Ensure AI countries have divisions
     await this.ensureAIDivisions(gameId, [...formulaStates, ...llmStates]);
 
+    // Build alliance map: countryId -> Set of ally countryIds
+    const allianceMembers = await prisma.allianceMember.findMany({
+      where: { gameId, status: { in: ['MEMBER', 'LEADER'] } },
+    });
+    const allianceMap = new Map<string, Set<string>>();
+    const allianceGroups = new Map<string, string[]>();
+    for (const m of allianceMembers) {
+      if (!allianceGroups.has(m.allianceId)) allianceGroups.set(m.allianceId, []);
+      allianceGroups.get(m.allianceId)!.push(m.countryId);
+    }
+    for (const [, members] of allianceGroups) {
+      for (const cid of members) {
+        if (!allianceMap.has(cid)) allianceMap.set(cid, new Set());
+        for (const ally of members) {
+          if (ally !== cid) allianceMap.get(cid)!.add(ally);
+        }
+      }
+    }
+
     const ruleAI = new RuleBasedAI();
     for (const cs of formulaStates) {
-      const orders = await this.generateDivisionOrders(gameId, cs, allCountryStates, turn, ruleAI);
+      const orders = await this.generateDivisionOrders(gameId, cs, allCountryStates, turn, ruleAI, allianceMap);
       await this.persistOrders(gameId, cs, turn, orders);
     }
 
@@ -167,7 +186,8 @@ export class AIPlayerService {
     cs: any,
     allStates: any[],
     turn: number,
-    ruleAI: RuleBasedAI
+    ruleAI: RuleBasedAI,
+    allianceMap?: Map<string, Set<string>>
   ): Promise<any[]> {
     // Get AI's active divisions
     const divisions = await prisma.division.findMany({
@@ -198,7 +218,7 @@ export class AIPlayerService {
     }
 
     // Use rule-based AI to decide action type
-    const baseOrders = ruleAI.generateOrders(cs, allStates, turn).slice(0, 3);
+    const baseOrders = ruleAI.generateOrders(cs, allStates, turn, allianceMap).slice(0, 3);
 
     // Convert to division-based orders
     const orders: any[] = [];

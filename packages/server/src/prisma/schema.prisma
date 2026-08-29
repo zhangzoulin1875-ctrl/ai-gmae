@@ -243,3 +243,31 @@ model Notification {
 
   @@map("notifications")
 }
+
+model Alliance {
+  id          String   @id @default(uuid())
+  gameId      String
+  name        String   @default("未命名聯盟")
+  leaderCountryId String  // alliance creator, has kick/approve powers
+  color       String   @default("#888888")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  members     AllianceMember[]
+
+  @@unique([gameId, name])
+  @@map("alliances")
+}
+
+model AllianceMember {
+  id          String   @id @default(uuid())
+  allianceId  String
+  gameId      String
+  countryId   String
+  status      String   @default("PENDING") // PENDING (applied) | MEMBER (approved) | LEADER
+  joinedAt    DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  alliance    Alliance @relation(fields: [allianceId], references: [id], onDelete: Cascade)
+
+  @@unique([gameId, countryId])  // a country can only be in one alliance at a time
+  @@map("alliance_members")
+}

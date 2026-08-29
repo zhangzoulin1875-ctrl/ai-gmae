@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { WWI_COUNTRIES, CountryDefinition, SIDE_LABELS_ZH } from '@wwi/shared';
+import { WWI_COUNTRIES, CountryDefinition} from '@wwi/shared';
 import { getApiUrl } from '../lib/api';
 import WorldMap from '../components/WorldMap';
 
@@ -145,7 +145,7 @@ const Lobby: React.FC = () => {
                   })()}
                 </h3>
                 <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-                  {SIDE_LABELS_ZH[WWI_COUNTRIES.find((x) => x.id === info.myCountryId)?.side || 'neutral']}
+                  {WWI_COUNTRIES.find((x) => x.id === info.myCountryId)?.nameZh || ''}
                 </p>
               </div>
             ) : isFull ? (
@@ -181,7 +181,7 @@ const Lobby: React.FC = () => {
                         {clickedCountry.flagIcon} {clickedCountry.nameZh}
                       </span>
                       <span style={{ marginLeft: '0.75rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                        {SIDE_LABELS_ZH[clickedCountry.side]}
+                        自由陣營
                       </span>
                     </div>
                     <button

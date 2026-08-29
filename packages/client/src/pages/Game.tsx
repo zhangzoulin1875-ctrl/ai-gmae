@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import {
   Order, OrderType, WWI_COUNTRIES, CountryDefinition,
-  SIDE_LABELS_ZH,
 } from '@wwi/shared';
 import WorldMap from '../components/WorldMap';
 import ErrorBoundary from '../components/ErrorBoundary';
@@ -11,6 +10,7 @@ import RecruitPanel from '../components/RecruitPanel';
 import DivisionPanel from '../components/DivisionPanel';
 import PolicyPanel from '../components/PolicyPanel';
 import TechTreePanel from '../components/TechTreePanel';
+import AlliancePanel from '../components/AlliancePanel';
 import NotificationBell from '../components/NotificationBell';
 import { getApiUrl, getSocketUrl, apiFetch } from '../lib/api';
 import { MilitaryState } from '../types/military';
@@ -58,7 +58,7 @@ interface GameState {
 }
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting';
-type TabType = 'orders' | 'recruit' | 'divisions' | 'policies' | 'workshop' | 'tech';
+type TabType = 'orders' | 'recruit' | 'divisions' | 'policies' | 'workshop' | 'tech' | 'alliance';
 
 const Game: React.FC = () => {
   const { id: gameId } = useParams<{ id: string }>();
@@ -808,6 +808,14 @@ const Game: React.FC = () => {
               >
                 🔬 科技樹
               </button>
+              <button
+                type="button"
+                className={activeTab === 'alliance' ? 'btn-primary' : 'btn-secondary'}
+                style={{ padding: '0.5rem 1rem', fontSize: '0.9rem' }}
+                onClick={() => setActiveTab('alliance')}
+              >
+                🤝 聯盟
+              </button>
             </div>
 
             {/* TAB 1: 作戰指令 */}
@@ -1177,6 +1185,15 @@ const Game: React.FC = () => {
               </ErrorBoundary>
             )}
 
+            {/* TAB 7: 聯盟 */}
+            {activeTab === 'alliance' && gameId && (
+              <ErrorBoundary>
+                <div className="card">
+                  <AlliancePanel gameId={gameId} myCountryId={state?.myCountryId || ''} refreshTrigger={notificationTrigger} />
+                </div>
+              </ErrorBoundary>
+            )}
+
             {/* My Orders This Turn */}
             {myOrders.length > 0 && (
               <div className="card">
@@ -1226,7 +1243,7 @@ const Game: React.FC = () => {
                         {c?.flagIcon} {c?.nameZh || p.countryId}
                         <br />
                         <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                          {p.username} · {SIDE_LABELS_ZH[c?.side || 'neutral']}
+                          {p.username}
                         </span>
                       </span>
                       <span style={{ fontSize: '0.75rem', color: p.isReady ? '#4ade80' : 'var(--text-muted)' }}>

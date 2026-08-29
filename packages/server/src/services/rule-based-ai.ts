@@ -56,12 +56,15 @@ const DIFFICULTY_MULT = 1.0;
 
 export class RuleBasedAI {
   private allStatesRef: CountryState[] = [];
+  private allianceMap: Map<string, Set<string>> = new Map();
   generateOrders(
     myState: CountryState,
     allStates: CountryState[],
-    turn: number
+    turn: number,
+    allianceMap?: Map<string, Set<string>>
   ): AIDecision[] {
     this.allStatesRef = allStates;
+    this.allianceMap = allianceMap || new Map();
     const assessment = this.assess(myState, allStates);
     const mode = this.selectMode(assessment);
     const orders = this.planOrders(mode, assessment, turn);
@@ -79,27 +82,28 @@ export class RuleBasedAI {
 
   private assess(myState: CountryState, allStates: CountryState[]): CountryAssessment {
     const myId = myState.countryId;
-    const myDef = WWI_COUNTRIES.find((c) => c.id === myId);
-    const mySide = myDef?.side || 'neutral';
 
     const powerMap = new Map<string, number>();
     for (const cs of allStates) {
       powerMap.set(cs.countryId, this.calculatePower(cs));
     }
 
+    // Alliance-based friend/foe detection
+    const myAllies = this.allianceMap.get(myId) || new Set<string>();
+
     const enemyStates: Array<{ countryId: string; power: number; side: string }> = [];
     const allyStates: Array<{ countryId: string; power: number; side: string }> = [];
 
     for (const cs of allStates) {
       if (cs.countryId === myId) continue;
-      const def = WWI_COUNTRIES.find((c) => c.id === cs.countryId);
-      const side = def?.side || 'neutral';
       const power = powerMap.get(cs.countryId) || 0;
 
-      if (this.isEnemy(mySide, side)) {
-        enemyStates.push({ countryId: cs.countryId, power, side });
-      } else if (side === mySide && side !== 'neutral') {
-        allyStates.push({ countryId: cs.countryId, power, side });
+      if (myAllies.has(cs.countryId)) {
+        // Same alliance = ally
+        allyStates.push({ countryId: cs.countryId, power, side: 'alliance' });
+      } else {
+        // Not in our alliance = potential enemy
+        enemyStates.push({ countryId: cs.countryId, power, side: 'hostile' });
       }
     }
 
@@ -127,7 +131,7 @@ export class RuleBasedAI {
     );
 
     return {
-      countryId: myId, side: mySide, power: myPower, economy, threat, opportunity,
+      countryId: myId, side: 'free', power: myPower, economy, threat, opportunity,
       morale: myState.morale, infantry: myState.infantry, artillery: myState.artillery,
       cavalry: myState.cavalry, gold: myState.gold, manpower: myState.manpower,
       industry: myState.industry, stability: myState.stability,
@@ -158,11 +162,10 @@ export class RuleBasedAI {
     return territories[Math.floor(Math.random() * territories.length)];
   }
 
-  private isEnemy(mySide: string, otherSide: string): boolean {
-    if (mySide === 'neutral' || otherSide === 'neutral') {
-      return Math.random() < 0.3;
-    }
-    return mySide !== otherSide;
+  // Legacy: alliance system replaces fixed sides. All non-allied countries
+  // are treated as potential enemies by the rule-based AI.
+  private isEnemy(_mySide: string, _otherSide: string): boolean {
+    return true;
   }
 
   // === 2. Mode Selection ===
