@@ -1,21 +1,23 @@
-import { WWI_COUNTRIES } from '@wwi/shared';
+import { getScenario } from '@wwi/shared';
+import type { ScenarioCountry } from '@wwi/shared';
 import { prisma } from '../lib/prisma.js';
 
-const MAJOR_POWERS = new Set(['deu', 'aut', 'tur', 'gbr', 'fra', 'rus', 'ita', 'usa', 'jpn']);
+export async function initializeGameCountries(gameId: string, scenarioId: string): Promise<void> {
+  const scenario = getScenario(scenarioId);
+  if (!scenario) {
+    throw new Error(`Unknown scenario: ${scenarioId}`);
+  }
 
-export async function initializeGameCountries(gameId: string): Promise<void> {
-  const records = WWI_COUNTRIES.map((c) => {
-    const isMajor = MAJOR_POWERS.has(c.id);
-    const isSecondary = ['bgr', 'srb', 'bel', 'rou', 'grc', 'mne', 'can', 'aus', 'nzl', 'zaf', 'ind', 'prt', 'chn', 'tha', 'bra', 'cub', 'egy', 'sau'].includes(c.id);
-
-    if (isMajor) {
+  const records = scenario.countries.map((c: ScenarioCountry) => {
+    const tier = c.tier || 'minor';
+    if (tier === 'major') {
       return {
         gameId, countryId: c.id, turn: 0,
         infantry: 500000, artillery: 500, cavalry: 100,
         morale: 70, gold: 500, industry: 50, manpower: 2000000, stability: 70,
         territories: [], isAIControlled: false, playerId: null,
       };
-    } else if (isSecondary) {
+    } else if (tier === 'secondary') {
       return {
         gameId, countryId: c.id, turn: 0,
         infantry: 200000, artillery: 200, cavalry: 50,
@@ -33,5 +35,5 @@ export async function initializeGameCountries(gameId: string): Promise<void> {
   });
 
   await prisma.countryState.createMany({ data: records });
-  console.log(`[GameInit] Initialized ${records.length} country states for game ${gameId}`);
+  console.log(`[GameInit] Initialized ${records.length} country states for game ${gameId} (scenario: ${scenarioId})`);
 }

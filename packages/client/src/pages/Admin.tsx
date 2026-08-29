@@ -18,6 +18,10 @@ const Admin: React.FC = () => {
   // Game management state
   const [games, setGames] = useState<any[]>([]);
   const [newGameName, setNewGameName] = useState('');
+  const [scenarios, setScenarios] = useState<any[]>([]);
+  const [selectedScenario, setSelectedScenario] = useState('wwi-global');
+  const [selectedEra, setSelectedEra] = useState('');
+  const [selectedRegion, setSelectedRegion] = useState('');
   const [gameActionLoading, setGameActionLoading] = useState(false);
   const [gameError, setGameError] = useState('');
 
@@ -37,6 +41,7 @@ const Admin: React.FC = () => {
         setAuthed(true);
         loadConfig();
         loadGames();
+        loadScenarios();
       } else {
         setError(data.error || '驗證失敗');
       }
@@ -44,6 +49,21 @@ const Admin: React.FC = () => {
       setError(err.message || '連線錯誤');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadScenarios = async () => {
+    const token = localStorage.getItem('adminToken');
+    try {
+      const res = await fetch(getApiUrl('/api/admin/scenarios'), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setScenarios(data.scenarios || []);
+      }
+    } catch (err) {
+      console.error('載入場景清單失敗');
     }
   };
 
@@ -88,7 +108,7 @@ const Admin: React.FC = () => {
       const res = await fetch(getApiUrl('/api/admin/games'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name: newGameName.trim() }),
+        body: JSON.stringify({ name: newGameName.trim(), scenarioId: selectedScenario }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -639,25 +659,90 @@ const Admin: React.FC = () => {
                   </div>
                 </div>
               ) : (
-                <form onSubmit={createGame} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end' }}>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
-                      戰局名稱
-                    </label>
-                    <input
-                      type="text"
-                      className="input-field"
-                      placeholder="例如:1914 西線戰役"
-                      value={newGameName}
-                      onChange={(e) => setNewGameName(e.target.value)}
-                      style={{ width: '100%' }}
-                      required
-                    />
+                <form onSubmit={createGame} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ display: 'flex', gap: '1rem' }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
+                        戰局名稱
+                      </label>
+                      <input
+                        type="text"
+                        className="input-field"
+                        placeholder="例如:1914 西線戰役"
+                        value={newGameName}
+                        onChange={(e) => setNewGameName(e.target.value)}
+                        style={{ width: '100%' }}
+                        required
+                      />
+                    </div>
                   </div>
+                  <div style={{ display: 'flex', gap: '1rem' }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
+                        年代
+                      </label>
+                      <select
+                        className="input-field"
+                        value={selectedEra}
+                        onChange={(e) => {
+                          setSelectedEra(e.target.value);
+                          setSelectedRegion('');
+                        }}
+                        style={{ width: '100%' }}
+                      >
+                        <option value="">全部年代</option>
+                        {[...new Set(scenarios.map(s => s.era))].map(era => (
+                          <option key={era} value={era}>{era}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
+                        地區
+                      </label>
+                      <select
+                        className="input-field"
+                        value={selectedRegion}
+                        onChange={(e) => setSelectedRegion(e.target.value)}
+                        style={{ width: '100%' }}
+                      >
+                        <option value="">全部地區</option>
+                        {[...new Set(scenarios.filter(s => !selectedEra || s.era === selectedEra).map(s => s.region))].map(region => (
+                          <option key={region} value={region}>{region}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
+                      場景
+                    </label>
+                    <select
+                      className="input-field"
+                      value={selectedScenario}
+                      onChange={(e) => setSelectedScenario(e.target.value)}
+                      style={{ width: '100%' }}
+                    >
+                      {scenarios
+                        .filter(s => !selectedEra || s.era === selectedEra)
+                        .filter(s => !selectedRegion || s.region === selectedRegion)
+                        .map(s => (
+                          <option key={s.id} value={s.id}>{s.nameZh} ({s.era}・{s.region}) — {s.countryCount}國</option>
+                        ))}
+                    </select>
+                  </div>
+                  {(() => {
+                    const selected = scenarios.find(s => s.id === selectedScenario);
+                    return selected ? (
+                      <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', padding: '0.5rem 0.75rem', backgroundColor: 'rgba(59,130,246,0.1)', borderRadius: '4px', border: '1px solid rgba(59,130,246,0.2)' }}>
+                        {selected.description}
+                      </p>
+                    ) : null;
+                  })()}
                   <button
                     type="submit"
                     disabled={gameActionLoading}
-                    style={{ padding: '0.75rem 1.5rem', backgroundColor: '#22c55e', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    style={{ padding: '0.75rem 1.5rem', backgroundColor: '#22c55e', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', alignSelf: 'flex-start' }}
                   >
                     {gameActionLoading ? '開啟中...' : '開啟新戰局'}
                   </button>

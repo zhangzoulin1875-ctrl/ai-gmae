@@ -22,9 +22,11 @@ interface WorldMapProps {
   countries: CountryDefinition[];
   selectedCountryId?: string | null;
   onSelectCountry?: (country: CountryDefinition | null) => void;
+  territoryMap?: Record<string, string>;
+  mapBounds?: [[number, number], [number, number]];
 }
 
-const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSelectCountry }) => {
+const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSelectCountry, territoryMap, mapBounds }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const hoveredIdRef = useRef<string | number | null>(null);
@@ -116,19 +118,55 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
       setMapError(`MapLibre error: ${detail}`);
     });
 
-    map.on('load', () => {
+    map.on('load', async () => {
       try {
         // Force the correct camera position — if the container had zero
         // size at construction time, MapLibre's internal transform can
         // end up corrupted (we saw zoom snap to 22 / center to the map
         // edge). jumpTo() forces a clean, correct camera regardless.
         map.resize();
-        map.jumpTo({ center: [10, 25], zoom: 1.2 });
+        if (mapBounds) {
+          const [[bMinLon, bMinLat], [bMaxLon, bMaxLat]] = mapBounds;
+          const centerLon = (bMinLon + bMaxLon) / 2;
+          const centerLat = (bMinLat + bMaxLat) / 2;
+          const lonRange = bMaxLon - bMinLon;
+          const latRange = bMaxLat - bMinLat;
+          const zoom = Math.max(0.5, Math.min(4, 7 - Math.log10(Math.max(lonRange, latRange)) * 1.5));
+          map.jumpTo({ center: [centerLon, centerLat], zoom });
+        } else {
+          map.jumpTo({ center: [10, 25], zoom: 1.2 });
+        }
 
-        // GeoJSON source — promoteId lets us use feature-state for hover
+        // GeoJSON source — apply scenario territoryMap and clip to mapBounds
+        const buildScenarioData = async () => {
+          const res = await fetch(GEOJSON_URL);
+          const geojson = await res.json();
+          if (territoryMap) {
+            for (const feat of geojson.features) {
+              const iso2 = feat.properties?.iso2 || '';
+              feat.properties.wwi = territoryMap[iso2] || feat.properties.wwi || '';
+            }
+          }
+          if (mapBounds) {
+            const [[minLon, minLat], [maxLon, maxLat]] = mapBounds;
+            geojson.features = geojson.features.filter((f: any) => {
+              const coords = f.geometry?.coordinates || [];
+              const ring = f.geometry?.type === 'Polygon' ? coords[0] : (f.geometry?.type === 'MultiPolygon' ? coords[0][0] : []);
+              if (!ring.length) return true;
+              const lons = ring.map((p: number[]) => p[0]);
+              const lats = ring.map((p: number[]) => p[1]);
+              return Math.min(...lons) <= maxLon && Math.max(...lons) >= minLon &&
+                     Math.min(...lats) <= maxLat && Math.max(...lats) >= minLat;
+            });
+          }
+          return geojson;
+        };
+
+        const scenarioData = await buildScenarioData();
+
         map.addSource('provinces', {
           type: 'geojson',
-          data: GEOJSON_URL,
+          data: scenarioData,
           promoteId: 'id',
         });
 

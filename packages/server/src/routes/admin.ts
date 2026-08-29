@@ -2,7 +2,7 @@ import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import type { AIConfig, AIProvider } from '@wwi/shared';
 import { AIEngine } from '../services/ai-engine.js';
-import { WWI_COUNTRIES } from '@wwi/shared';
+import { WWI_COUNTRIES, listScenarios, getScenario } from '@wwi/shared';
 import { prisma } from '../lib/prisma.js';
 import { initializeGameCountries } from '../services/game-init.js';
 import { TurnResolver } from '../services/turn-resolver.js';
@@ -124,9 +124,10 @@ router.get('/games', adminAuth, async (_req, res) => {
         id: g.id,
         name: g.name,
         status: g.status,
+        scenarioId: g.scenarioId,
         currentTurn: g.currentTurn,
         playerCount: g.players.length,
-        maxPlayers: TOTAL_COUNTRIES,
+        maxPlayers: getScenario(g.scenarioId)?.countries.length || 54,
         createdAt: g.createdAt,
       })),
     });
@@ -135,12 +136,29 @@ router.get('/games', adminAuth, async (_req, res) => {
   }
 });
 
+// List available scenarios
+router.get('/scenarios', adminAuth, (_req, res) => {
+  res.json({ scenarios: listScenarios() });
+});
+
+// Get scenario details (territoryMap + countries for map rendering)
+router.get('/scenarios/:id', adminAuth, (req, res) => {
+  const scenario = getScenario(req.params.id);
+  if (!scenario) return res.status(404).json({ error: '場景不存在' });
+  res.json({ scenario });
+});
+
 // Open a new game - only one WAITING/ACTIVE game is allowed at a time
 router.post('/games', adminAuth, async (req, res) => {
   try {
-    const { name } = req.body as { name?: string };
+    const { name, scenarioId } = req.body as { name?: string; scenarioId?: string };
     if (!name || !name.trim()) {
       return res.status(400).json({ error: '戰局名稱必填' });
+    }
+    const sid = scenarioId || 'wwi-global';
+    const scenario = getScenario(sid);
+    if (!scenario) {
+      return res.status(400).json({ error: `未知場景: ${sid}` });
     }
 
     const existing = await prisma.gameRoom.findFirst({
@@ -151,11 +169,11 @@ router.post('/games', adminAuth, async (req, res) => {
     }
 
     const game = await prisma.gameRoom.create({
-      data: { name: name.trim(), status: 'ACTIVE' },
+      data: { name: name.trim(), status: 'ACTIVE', scenarioId: sid },
     });
 
-    // Initialize all 54 country states with starting values
-    await initializeGameCountries(game.id);
+    // Initialize country states for this scenario
+    await initializeGameCountries(game.id, sid);
 
     res.json({ success: true, game });
   } catch (error: any) {
