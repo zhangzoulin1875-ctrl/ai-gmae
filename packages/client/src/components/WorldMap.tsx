@@ -3,18 +3,23 @@ import {
   ComposableMap,
   Geographies,
   Geography,
+  Graticule,
   ZoomableGroup,
 } from 'react-simple-maps';
 import type { CountryDefinition } from '@wwi/shared';
 import { ISO_NUMERIC_TO_ALPHA3 } from '@wwi/shared';
 
-// Real-world country boundaries (110m resolution), served from a CDN as TopoJSON.
-const WORLD_TOPOJSON_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
+// Real-world country boundaries (50m resolution = much crisper coastlines
+// than the 110m version), served from a CDN as TopoJSON.
+const WORLD_TOPOJSON_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json';
 
-const OCEAN_TOP = '#0a2740';
-const OCEAN_BOTTOM = '#04121f';
-const UNCLAIMED_FILL = '#2a3140';
-const UNCLAIMED_STROKE = '#1a2028';
+const OCEAN_TOP = '#0f3352';
+const OCEAN_MID = '#0a2340';
+const OCEAN_EDGE = '#030d18';
+const UNCLAIMED_TOP = '#3a3f38';
+const UNCLAIMED_BOTTOM = '#23261f';
+const UNCLAIMED_STROKE = '#14150f';
+const INK_STROKE = '#0c1016';
 
 interface WorldMapProps {
   countries: CountryDefinition[];
@@ -29,17 +34,17 @@ function hexToRgb(hex: string): [number, number, number] {
   return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255];
 }
 
-function lighten(hex: string, amount: number): string {
+function shade(hex: string, amount: number): string {
   const [r, g, b] = hexToRgb(hex);
-  const l = (v: number) => Math.min(255, Math.round(v + (255 - v) * amount));
-  return `rgb(${l(r)}, ${l(g)}, ${l(b)})`;
+  const adj = (v: number) =>
+    amount >= 0 ? Math.min(255, Math.round(v + (255 - v) * amount)) : Math.max(0, Math.round(v * (1 + amount)));
+  return `rgb(${adj(r)}, ${adj(g)}, ${adj(b)})`;
 }
 
 const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSelectCountry }) => {
   const [hoveredAlpha3, setHoveredAlpha3] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; country: CountryDefinition } | null>(null);
 
-  // alpha3 -> country definition (first match wins if duplicated, e.g. SAU used by both sau & nej)
   const byAlpha3 = useMemo(() => {
     const map = new Map<string, CountryDefinition>();
     for (const c of countries) {
@@ -51,41 +56,69 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
   const selectedCountry = selectedCountryId ? countries.find((c) => c.id === selectedCountryId) : null;
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '520px', borderRadius: '6px', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+    <div
+      style={{
+        position: 'relative',
+        width: '100%',
+        height: '560px',
+        borderRadius: '6px',
+        overflow: 'hidden',
+        border: '1px solid var(--border-color)',
+        boxShadow: 'inset 0 0 60px rgba(0,0,0,0.55)',
+      }}
+    >
       <ComposableMap
         projection="geoMercator"
-        projectionConfig={{ scale: 130, center: [10, 20] }}
-        style={{ width: '100%', height: '100%' }}
+        projectionConfig={{ scale: 135, center: [10, 20] }}
+        style={{ width: '100%', height: '100%', filter: 'saturate(1.2) contrast(1.08)' }}
       >
         <defs>
-          <radialGradient id="ocean-gradient" cx="50%" cy="35%" r="75%">
+          <radialGradient id="ocean-gradient" cx="42%" cy="30%" r="85%">
             <stop offset="0%" stopColor={OCEAN_TOP} />
-            <stop offset="100%" stopColor={OCEAN_BOTTOM} />
+            <stop offset="55%" stopColor={OCEAN_MID} />
+            <stop offset="100%" stopColor={OCEAN_EDGE} />
           </radialGradient>
-          <filter id="land-shadow" x="-20%" y="-20%" width="140%" height="140%">
-            <feDropShadow dx="0" dy="0.6" stdDeviation="0.5" floodColor="#000000" floodOpacity="0.45" />
+
+          {/* Paper/canvas grain, purely procedural (no external assets) for a
+              hand-painted grand-strategy atlas feel. */}
+          <filter id="paper-grain" x="0%" y="0%" width="100%" height="100%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="noise" />
+            <feColorMatrix in="noise" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.05 0" />
           </filter>
+
+          <filter id="land-shadow" x="-30%" y="-30%" width="160%" height="160%">
+            <feDropShadow dx="0" dy="0.8" stdDeviation="0.9" floodColor="#000000" floodOpacity="0.55" />
+          </filter>
+
+          <filter id="select-glow" x="-60%" y="-60%" width="220%" height="220%">
+            <feDropShadow dx="0" dy="0" stdDeviation="2.2" floodColor="#ffd166" floodOpacity="0.95" />
+          </filter>
+
           {countries.map((c) => (
-            <linearGradient id={`grad-${c.id}`} key={c.id} x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor={lighten(c.color, 0.28)} />
-              <stop offset="100%" stopColor={c.color} />
+            <linearGradient id={`grad-${c.id}`} key={c.id} x1="15%" y1="0%" x2="85%" y2="100%">
+              <stop offset="0%" stopColor={shade(c.color, 0.32)} />
+              <stop offset="45%" stopColor={c.color} />
+              <stop offset="100%" stopColor={shade(c.color, -0.22)} />
             </linearGradient>
           ))}
+          <linearGradient id="grad-unclaimed" x1="15%" y1="0%" x2="85%" y2="100%">
+            <stop offset="0%" stopColor={UNCLAIMED_TOP} />
+            <stop offset="100%" stopColor={UNCLAIMED_BOTTOM} />
+          </linearGradient>
         </defs>
 
         <rect x="-50%" y="-50%" width="200%" height="200%" fill="url(#ocean-gradient)" />
 
-        <ZoomableGroup zoom={1} minZoom={1} maxZoom={8} translateExtent={[[-50, -50], [850, 550]]}>
+        <ZoomableGroup zoom={1} minZoom={1} maxZoom={9} translateExtent={[[-60, -60], [860, 560]]}>
+          <Graticule stroke="rgba(140,180,220,0.10)" strokeWidth={0.4} step={[15, 15]} />
+
           <Geographies geography={WORLD_TOPOJSON_URL}>
             {({ geographies }) =>
               geographies.map((geo) => {
                 const alpha3 = ISO_NUMERIC_TO_ALPHA3[String(geo.id)];
                 const country = alpha3 ? byAlpha3.get(alpha3) : undefined;
-                const isHovered = !!country && hoveredAlpha3 === alpha3;
                 const isSelected = !!country && country.id === selectedCountryId;
-
-                let fill = UNCLAIMED_FILL;
-                if (country) fill = `url(#grad-${country.id})`;
+                const fill = country ? `url(#grad-${country.id})` : 'url(#grad-unclaimed)';
 
                 return (
                   <Geography
@@ -110,20 +143,22 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
                     style={{
                       default: {
                         fill,
-                        stroke: isSelected ? '#ffd166' : UNCLAIMED_STROKE,
-                        strokeWidth: isSelected ? 1.3 : 0.4,
+                        stroke: isSelected ? '#ffd166' : country ? INK_STROKE : UNCLAIMED_STROKE,
+                        strokeWidth: isSelected ? 1.1 : country ? 0.55 : 0.4,
                         outline: 'none',
                         cursor: country ? 'pointer' : 'default',
-                        filter: country ? 'url(#land-shadow)' : 'none',
+                        filter: isSelected ? 'url(#select-glow)' : country ? 'url(#land-shadow)' : 'none',
                         transition: 'stroke 0.15s ease',
                       },
                       hover: {
-                        fill: country ? fill : UNCLAIMED_FILL,
-                        stroke: isSelected ? '#ffd166' : '#ffffff',
-                        strokeWidth: isSelected ? 1.3 : 0.9,
+                        fill,
+                        stroke: isSelected ? '#ffd166' : country ? '#f4e9d0' : '#555',
+                        strokeWidth: isSelected ? 1.1 : country ? 1 : 0.5,
                         outline: 'none',
                         cursor: country ? 'pointer' : 'default',
-                        filter: country ? 'url(#land-shadow) brightness(1.15)' : 'none',
+                        filter: country
+                          ? `${isSelected ? 'url(#select-glow)' : 'url(#land-shadow)'} brightness(1.18)`
+                          : 'none',
                       },
                       pressed: {
                         fill,
@@ -136,7 +171,27 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
             }
           </Geographies>
         </ZoomableGroup>
+
+        {/* Procedural paper-grain overlay for texture, blended subtly over everything */}
+        <rect
+          x="-50%"
+          y="-50%"
+          width="200%"
+          height="200%"
+          filter="url(#paper-grain)"
+          style={{ mixBlendMode: 'overlay', pointerEvents: 'none' }}
+        />
       </ComposableMap>
+
+      {/* Vignette */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          boxShadow: 'inset 0 0 120px 40px rgba(0,0,0,0.5)',
+        }}
+      />
 
       {tooltip && (
         <div
