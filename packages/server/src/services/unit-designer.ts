@@ -15,9 +15,11 @@ const DEFAULT_RULES = {
   maxDefense: 100,
   maxSpeed: 50,
   maxRange: 10,
-  minCostGold: 10,
-  minCostManpower: 1000,
-  minCostIndustry: 1,
+  // NOTE: costGold/costIndustry are "per 100 recruited soldiers", costManpower
+  // is direct per-soldier headcount cost (see @wwi/shared recruitCost()).
+  minCostGold: 2,
+  minCostManpower: 1,
+  minCostIndustry: 0,
   forbiddenTechs: 'nuclear,atomic,nuke,missile,ballistic,jet,satellite,computer,drone,laser,stealth,cyber,radar,sonar,submarine-launched,ICBM,smart bomb,GPS',
   allowedEra: 'bolt-action rifle,machine gun,artillery cannon,cavalry horse,steam ship,dreadnought,zeppelin,early tank,biplane,trench,barbed wire,gas,flamethrower',
 };
@@ -105,9 +107,12 @@ STAT CAPS (must not exceed):
 - defense: max ${r.maxDefense}
 - speed: max ${r.maxSpeed}
 - range: max ${r.maxRange}
-- costGold: min ${r.minCostGold}
-- costManpower: min ${r.minCostManpower}
-- costIndustry: min ${r.minCostIndustry}
+
+COST FIELDS — IMPORTANT SCALE (do not use large numbers, this is not per-soldier for gold/industry):
+- costGold: cost to recruit a BATCH OF 100 soldiers of this unit (min ${r.minCostGold}, typical range 2-40). For comparison, the baseline standard infantry costs 2 gold per 100 recruited.
+- costManpower: DIRECT per-single-soldier headcount cost (min ${r.minCostManpower}, typical range 1-5). Baseline standard infantry = 1.
+- costIndustry: cost per BATCH OF 100 soldiers, represents factory/equipment allocation (min ${r.minCostIndustry}, typical range 0-10). Only heavy/mechanized units should have costIndustry above ~5.
+A stronger/rarer unit should cost proportionally more than the baseline (e.g. 2-4x), but must stay within these small ranges — countries only start with ~500 gold and ~10 industry, so anything above ~50 gold per 100 or ~15 industry per 100 will be nearly unaffordable.
 
 All names and descriptions MUST be in Traditional Chinese (繁體中文).
 
@@ -120,9 +125,9 @@ Respond ONLY with valid JSON:
   "defense": 30,
   "speed": 8,
   "range": 1,
-  "costGold": 80,
-  "costManpower": 15000,
-  "costIndustry": 8
+  "costGold": 6,
+  "costManpower": 2,
+  "costIndustry": 1
 }`;
 
     const userMsg = `設計一個${CATEGORY_ZH[category]}單位。提示詞: ${prompt}`;
@@ -211,9 +216,13 @@ Respond ONLY with valid JSON:
       defense: Math.min(r.maxDefense, Math.max(1, Number(raw.defense) || 10)),
       speed: Math.min(r.maxSpeed, Math.max(1, Number(raw.speed) || 5)),
       range: Math.min(r.maxRange, Math.max(1, Number(raw.range) || 1)),
-      costGold: Math.max(r.minCostGold, Number(raw.costGold) || r.minCostGold),
-      costManpower: Math.max(r.minCostManpower, Number(raw.costManpower) || r.minCostManpower),
-      costIndustry: Math.max(r.minCostIndustry, Number(raw.costIndustry) || r.minCostIndustry),
+      // Clamp cost fields with BOTH a floor (minCost*, admin-configurable) and a
+      // hard ceiling (fixed multiple of the floor) — a floor alone let a runaway
+      // AI response (e.g. copying an old example's scale) produce unaffordable
+      // units like costManpower=15000 with no way to ever recruit them.
+      costGold: Math.min(r.minCostGold * 20 + 40, Math.max(r.minCostGold, Number(raw.costGold) || r.minCostGold)),
+      costManpower: Math.min(r.minCostManpower * 10 + 10, Math.max(r.minCostManpower, Number(raw.costManpower) || r.minCostManpower)),
+      costIndustry: Math.min(r.minCostIndustry * 10 + 15, Math.max(r.minCostIndustry, Number(raw.costIndustry) || r.minCostIndustry)),
     };
   }
 

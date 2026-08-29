@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma.js';
-import { WWI_COUNTRIES } from '@wwi/shared';
+import { WWI_COUNTRIES, recruitCost } from '@wwi/shared';
 import type { AIProvider } from '@wwi/shared';
 import { AIEngine } from './ai-engine.js';
 import { AIPlayerService } from './ai-player.js';
@@ -448,9 +448,10 @@ export class TurnResolver {
       for (const [unitId, qty] of Object.entries(comp)) {
         const unit = unitMap.get(unitId);
         if (!unit || qty <= 0) continue;
-        totalGold += unit.costGold * qty;
-        totalManpower += unit.costManpower * qty;
-        totalIndustry += unit.costIndustry * qty;
+        const cost = recruitCost(unit, qty);
+        totalGold += cost.gold;
+        totalManpower += cost.manpower;
+        totalIndustry += cost.industry;
       }
 
       if (state.gold < totalGold || state.manpower < totalManpower || state.industry < totalIndustry) {

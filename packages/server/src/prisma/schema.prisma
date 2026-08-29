@@ -164,9 +164,13 @@ model UnitDesignRule {
   maxDefense      Int      @default(100)
   maxSpeed        Int      @default(50)
   maxRange        Int      @default(10)
-  minCostGold     Int      @default(10)
-  minCostManpower Int      @default(1000)
-  minCostIndustry Int      @default(1)
+  // NOTE: costGold/costIndustry are "per 100 recruited soldiers", costManpower
+  // is direct per-soldier (see @wwi/shared recruitCost()). Keep these in the
+  // same ballpark as the system default units (infantry: gold=2, manpower=1,
+  // industry=0) so player-designed units stay affordable at bulk recruitment.
+  minCostGold     Int      @default(2)
+  minCostManpower Int      @default(1)
+  minCostIndustry Int      @default(0)
   // Forbidden technologies (newline-separated)
   forbiddenTechs  String   @default("nuclear,atomic,nuke,missile,ballistic,jet,satellite,computer,drone,laser,stealth,cyber,radar,sonar,submarine-launched,ICBM,smart bomb,GPS")
   // Allowed tech keywords (whitelist hint for AI)

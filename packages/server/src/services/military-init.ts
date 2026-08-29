@@ -1,5 +1,10 @@
 import { prisma } from '../lib/prisma.js';
 
+// NOTE on cost balancing: costGold/costIndustry are expressed "per 100
+// recruited soldiers" (see @wwi/shared recruitCost()), while costManpower
+// is a direct 1:1 per-soldier headcount cost. This keeps recruiting
+// affordable against typical starting resources (~500 gold, ~10 industry,
+// ~2,000,000 manpower) even at bulk quantities (hundreds to thousands).
 export async function ensureSystemUnits() {
   const defaults = [
     {
@@ -11,9 +16,9 @@ export async function ensureSystemUnits() {
       defense: 15,
       speed: 5,
       range_: 1,
-      costGold: 30,
-      costManpower: 5000,
-      costIndustry: 2,
+      costGold: 2,       // per 100 recruited
+      costManpower: 1,   // per soldier
+      costIndustry: 0,   // per 100 recruited — basic infantry needs no factory allocation
     },
     {
       category: 'artillery',
@@ -24,9 +29,9 @@ export async function ensureSystemUnits() {
       defense: 10,
       speed: 3,
       range_: 2,
-      costGold: 60,
-      costManpower: 3000,
-      costIndustry: 5,
+      costGold: 15,      // per 100 recruited
+      costManpower: 3,   // per soldier
+      costIndustry: 8,   // per 100 recruited — heavy equipment needs factories
     },
     {
       category: 'cavalry',
@@ -37,9 +42,9 @@ export async function ensureSystemUnits() {
       defense: 8,
       speed: 10,
       range_: 1,
-      costGold: 40,
-      costManpower: 4000,
-      costIndustry: 1,
+      costGold: 8,       // per 100 recruited
+      costManpower: 2,   // per soldier
+      costIndustry: 2,   // per 100 recruited
     },
   ];
 
@@ -50,26 +55,42 @@ export async function ensureSystemUnits() {
       where: { isSystemDefault: true, category: def.category },
     });
 
+    const data = {
+      category: def.category,
+      nameZh: def.nameZh,
+      nameEn: def.nameEn,
+      description: def.description,
+      attack: def.attack,
+      defense: def.defense,
+      speed: def.speed,
+      range_: def.range_,
+      costGold: def.costGold,
+      costManpower: def.costManpower,
+      costIndustry: def.costIndustry,
+      isApproved: true,
+      isSystemDefault: true,
+      designedByUserId: null,
+      designedByUsername: null,
+      designedByCountryId: null,
+      gameId: null,
+    };
+
     if (!unit) {
-      unit = await prisma.customUnit.create({
+      unit = await prisma.customUnit.create({ data });
+    } else if (
+      // Auto-correct stale/previously-broken cost values on existing rows
+      // (e.g. games that started before the recruit cost rebalance) so
+      // players don't have to wait for a fresh deploy to get sane costs.
+      unit.costGold !== def.costGold ||
+      unit.costManpower !== def.costManpower ||
+      unit.costIndustry !== def.costIndustry
+    ) {
+      unit = await prisma.customUnit.update({
+        where: { id: unit.id },
         data: {
-          category: def.category,
-          nameZh: def.nameZh,
-          nameEn: def.nameEn,
-          description: def.description,
-          attack: def.attack,
-          defense: def.defense,
-          speed: def.speed,
-          range_: def.range_,
           costGold: def.costGold,
           costManpower: def.costManpower,
           costIndustry: def.costIndustry,
-          isApproved: true,
-          isSystemDefault: true,
-          designedByUserId: null,
-          designedByUsername: null,
-          designedByCountryId: null,
-          gameId: null,
         },
       });
     }

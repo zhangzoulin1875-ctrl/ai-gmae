@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { ensureStockpileMigration } from '../services/military-init.js';
+import { recruitCost } from '@wwi/shared';
 
 const router = Router();
 
@@ -174,7 +175,7 @@ router.post('/recruit', authMiddleware, async (req: any, res) => {
       }
     }
 
-    // Compute cost
+    // Compute cost (gold/industry scale per-100-recruited; manpower is 1:1 per soldier)
     let totalCostGold = 0;
     let totalCostManpower = 0;
     let totalCostIndustry = 0;
@@ -182,9 +183,10 @@ router.post('/recruit', authMiddleware, async (req: any, res) => {
     for (const [uid, qtyRaw] of unitEntries) {
       const qty = Math.floor(Number(qtyRaw));
       const u = unitMap.get(uid)!;
-      totalCostGold += u.costGold * qty;
-      totalCostManpower += u.costManpower * qty;
-      totalCostIndustry += u.costIndustry * qty;
+      const cost = recruitCost(u, qty);
+      totalCostGold += cost.gold;
+      totalCostManpower += cost.manpower;
+      totalCostIndustry += cost.industry;
     }
 
     // Get current CountryState
@@ -229,9 +231,10 @@ router.post('/recruit', authMiddleware, async (req: any, res) => {
         for (const [uid, qty] of Object.entries(pr.recruitComposition as Record<string, number>)) {
           const u = pendingUnitMap.get(uid);
           if (u) {
-            committedGold += u.costGold * qty;
-            committedManpower += u.costManpower * qty;
-            committedIndustry += u.costIndustry * qty;
+            const cost = recruitCost(u, qty);
+            committedGold += cost.gold;
+            committedManpower += cost.manpower;
+            committedIndustry += cost.industry;
           }
         }
       }

@@ -4,3 +4,4 @@ export * from './types/admin';
 export * from './types/map';
 export * from './constants/countries';
 export * from './constants/iso-map';
+export * from './lib/recruit-cost';

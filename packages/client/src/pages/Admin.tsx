@@ -1032,9 +1032,9 @@ const Admin: React.FC = () => {
                           <span>⚔️ 攻: {u.attack}</span>
                           <span>🛡️ 防: {u.defense}</span>
                           <span>💨 速: {u.speed}</span>
-                          <span>💰 金: {u.costGold}</span>
-                          <span>👥 人: {u.costManpower.toLocaleString()}</span>
-                          <span>🏭 工: {u.costIndustry}</span>
+                          <span>💰 金/百人: {u.costGold}</span>
+                          <span>👥 人力/人: {u.costManpower.toLocaleString()}</span>
+                          <span>🏭 工/百人: {u.costIndustry}</span>
                         </div>
                         {u.prompt && <p style={{ fontSize: '0.7rem', marginTop: '0.25rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>提示: {u.prompt}</p>}
                       </div>

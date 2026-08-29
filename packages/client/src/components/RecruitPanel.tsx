@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { apiFetch } from '../lib/api';
+import { recruitCost } from '@wwi/shared';
 import {
   MilitaryState,
   AvailableUnit,
@@ -62,9 +63,10 @@ const RecruitPanel: React.FC<RecruitPanelProps> = ({ militaryState, onRefresh })
     }
   };
 
-  const totalCostGold = selectedUnit ? selectedUnit.costGold * quantity : 0;
-  const totalCostManpower = selectedUnit ? selectedUnit.costManpower * quantity : 0;
-  const totalCostIndustry = selectedUnit ? selectedUnit.costIndustry * quantity : 0;
+  const previewCost = selectedUnit ? recruitCost(selectedUnit, quantity) : { gold: 0, manpower: 0, industry: 0 };
+  const totalCostGold = previewCost.gold;
+  const totalCostManpower = previewCost.manpower;
+  const totalCostIndustry = previewCost.industry;
 
   const hasEnoughGold = countryState ? countryState.gold >= totalCostGold : true;
   const hasEnoughManpower = countryState ? countryState.manpower >= totalCostManpower : true;
@@ -150,8 +152,8 @@ const RecruitPanel: React.FC<RecruitPanelProps> = ({ militaryState, onRefresh })
                         </div>
                       </div>
                       <div style={{ fontSize: '0.75rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.4rem', display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-                        <span style={{ color: 'var(--text-muted)' }}>每單位成本:</span>
-                        <span>💰 黃金 {unit.costGold} | 👥 人力 {unit.costManpower} | 🏭 工業 {unit.costIndustry}</span>
+                        <span style={{ color: 'var(--text-muted)' }}>招募 100 名成本:</span>
+                        <span>💰 黃金 {unit.costGold} | 🏭 工業 {unit.costIndustry}　(👥 人力 每名 {unit.costManpower})</span>
                       </div>
                     </div>
                   );
