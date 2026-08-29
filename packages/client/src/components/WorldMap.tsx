@@ -1,9 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   ComposableMap,
   Geographies,
   Geography,
-  Graticule,
   ZoomableGroup,
 } from 'react-simple-maps';
 import type { CountryDefinition } from '@wwi/shared';
@@ -39,45 +38,97 @@ function shade(hex: string, amount: number): string {
   return `rgb(${adj(r)}, ${adj(g)}, ${adj(b)})`;
 }
 
+// Memoized per-province shape. Only re-renders when ITS OWN selection state
+// or fill/stroke actually changes — not on every tooltip/mouse update, which
+// is what was murdering performance with 3240 provinces on the map.
+interface ProvinceShapeProps {
+  geo: any;
+  fill: string;
+  isSelected: boolean;
+  isClaimed: boolean;
+  onHover: (evt: React.MouseEvent, geo: any) => void;
+  onLeave: () => void;
+  onClick: (geo: any) => void;
+}
+
+const ProvinceShape = React.memo(
+  ({ geo, fill, isSelected, isClaimed, onHover, onLeave, onClick }: ProvinceShapeProps) => {
+    return (
+      <Geography
+        geography={geo}
+        onMouseEnter={(evt) => onHover(evt, geo)}
+        onMouseLeave={onLeave}
+        onClick={() => onClick(geo)}
+        style={{
+          default: {
+            fill,
+            stroke: isSelected ? '#ffd166' : isClaimed ? INK_STROKE : UNCLAIMED_STROKE,
+            strokeWidth: isSelected ? 0.8 : isClaimed ? 0.3 : 0.25,
+            outline: 'none',
+            cursor: isClaimed ? 'pointer' : 'default',
+            transition: 'none',
+          },
+          hover: {
+            fill,
+            stroke: isSelected ? '#ffd166' : isClaimed ? '#e8d8b8' : '#555',
+            strokeWidth: isSelected ? 0.8 : isClaimed ? 0.7 : 0.4,
+            outline: 'none',
+            cursor: isClaimed ? 'pointer' : 'default',
+          },
+          pressed: { fill, outline: 'none' },
+        }}
+      />
+    );
+  },
+  (prev, next) =>
+    prev.geo === next.geo &&
+    prev.fill === next.fill &&
+    prev.isSelected === next.isSelected &&
+    prev.isClaimed === next.isClaimed
+);
+ProvinceShape.displayName = 'ProvinceShape';
+
 const ProvinceMap: React.FC<ProvinceMapProps> = ({ countries, selectedCountryId, onSelectCountry }) => {
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string; color: string } | null>(null);
 
-  // wwi country ID -> CountryDefinition
   const byWwiId = useMemo(() => {
     const map = new Map<string, CountryDefinition>();
-    for (const c of countries) {
-      map.set(c.id, c);
-    }
+    for (const c of countries) map.set(c.id, c);
     return map;
   }, [countries]);
 
-  // Pre-compute gradient IDs
-  const gradientIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const c of countries) ids.add(c.id);
-    return ids;
-  }, [countries]);
+  // onMouseEnter only (not onMouseMove) — fires once per province entry
+  // instead of on every pixel of mouse travel, which is what caused the
+  // freeze/black-screen: 3240 elements re-rendering on every mouse pixel.
+  const handleGeoEnter = useCallback(
+    (evt: React.MouseEvent, geo: any) => {
+      const wwi = geo.properties?.wwi;
+      const country = wwi ? byWwiId.get(wwi) : undefined;
+      if (!country) {
+        setTooltip(null);
+        return;
+      }
+      const provName = geo.properties?.nameZh || geo.properties?.name || '';
+      setTooltip({
+        x: evt.clientX,
+        y: evt.clientY,
+        text: `${country.flagIcon} ${country.nameZh} · ${provName}`,
+        color: country.color,
+      });
+    },
+    [byWwiId]
+  );
 
-  const handleGeoEnter = (evt: React.MouseEvent, geo: any) => {
-    const wwi = geo.properties?.wwi;
-    if (!wwi) return;
-    const country = byWwiId.get(wwi);
-    if (!country) return;
-    const provName = geo.properties?.nameZh || geo.properties?.name || '';
-    setTooltip({
-      x: evt.clientX,
-      y: evt.clientY,
-      text: `${country.flagIcon} ${country.nameZh} · ${provName}`,
-      color: country.color,
-    });
-  };
+  const handleGeoLeave = useCallback(() => setTooltip(null), []);
 
-  const handleGeoClick = (geo: any) => {
-    const wwi = geo.properties?.wwi;
-    if (!wwi) return;
-    const country = byWwiId.get(wwi);
-    if (country) onSelectCountry?.(country);
-  };
+  const handleGeoClick = useCallback(
+    (geo: any) => {
+      const wwi = geo.properties?.wwi;
+      const country = wwi ? byWwiId.get(wwi) : undefined;
+      if (country) onSelectCountry?.(country);
+    },
+    [byWwiId, onSelectCountry]
+  );
 
   const selectedCountry = selectedCountryId ? byWwiId.get(selectedCountryId) : null;
 
@@ -90,30 +141,16 @@ const ProvinceMap: React.FC<ProvinceMapProps> = ({ countries, selectedCountryId,
         borderRadius: '6px',
         overflow: 'hidden',
         border: '1px solid var(--border-color)',
+        background: `radial-gradient(ellipse at 42% 30%, ${OCEAN_TOP} 0%, ${OCEAN_MID} 55%, ${OCEAN_EDGE} 100%)`,
         boxShadow: 'inset 0 0 60px rgba(0,0,0,0.55)',
       }}
     >
       <ComposableMap
         projection="geoMercator"
         projectionConfig={{ scale: 140, center: [10, 20] }}
-        style={{ width: '100%', height: '100%', filter: 'saturate(1.15) contrast(1.06)' }}
+        style={{ width: '100%', height: '100%' }}
       >
         <defs>
-          <radialGradient id="ocean-gradient" cx="42%" cy="30%" r="85%">
-            <stop offset="0%" stopColor={OCEAN_TOP} />
-            <stop offset="55%" stopColor={OCEAN_MID} />
-            <stop offset="100%" stopColor={OCEAN_EDGE} />
-          </radialGradient>
-
-          <filter id="paper-grain" x="0%" y="0%" width="100%" height="100%">
-            <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="noise" />
-            <feColorMatrix in="noise" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.04 0" />
-          </filter>
-
-          <filter id="land-shadow" x="-30%" y="-30%" width="160%" height="160%">
-            <feDropShadow dx="0" dy="0.6" stdDeviation="0.6" floodColor="#000000" floodOpacity="0.45" />
-          </filter>
-
           {countries.map((c) => (
             <linearGradient id={`grad-${c.id}`} key={c.id} x1="15%" y1="0%" x2="85%" y2="100%">
               <stop offset="0%" stopColor={shade(c.color, 0.3)} />
@@ -127,64 +164,32 @@ const ProvinceMap: React.FC<ProvinceMapProps> = ({ countries, selectedCountryId,
           </linearGradient>
         </defs>
 
-        <rect x="-50%" y="-50%" width="200%" height="200%" fill="url(#ocean-gradient)" />
-
         <ZoomableGroup zoom={1} minZoom={1} maxZoom={12} translateExtent={[[-100, -100], [900, 600]]}>
-          <Graticule stroke="rgba(140,180,220,0.08)" strokeWidth={0.4} step={[15, 15]} />
-
           <Geographies geography={PROVINCES_TOPO}>
             {({ geographies }) =>
               geographies.map((geo) => {
                 const wwi = geo.properties?.wwi || '';
-                const country = gradientIds.has(wwi) ? byWwiId.get(wwi) : null;
+                const country = wwi ? byWwiId.get(wwi) : undefined;
+                const isClaimed = !!country;
                 const isSelected = wwi === selectedCountryId;
                 const fill = country ? `url(#grad-${wwi})` : 'url(#grad-unclaimed)';
 
                 return (
-                  <Geography
+                  <ProvinceShape
                     key={geo.rsmKey}
-                    geography={geo}
-                    onMouseEnter={(evt) => handleGeoEnter(evt, geo)}
-                    onMouseMove={(evt) => handleGeoEnter(evt, geo)}
-                    onMouseLeave={() => setTooltip(null)}
-                    onClick={() => handleGeoClick(geo)}
-                    style={{
-                      default: {
-                        fill,
-                        stroke: isSelected ? '#ffd166' : country ? INK_STROKE : UNCLAIMED_STROKE,
-                        strokeWidth: isSelected ? 0.8 : country ? 0.3 : 0.25,
-                        outline: 'none',
-                        cursor: country ? 'pointer' : 'default',
-                        filter: country ? 'url(#land-shadow)' : 'none',
-                        transition: 'stroke 0.12s ease',
-                      },
-                      hover: {
-                        fill,
-                        stroke: isSelected ? '#ffd166' : country ? '#e8d8b8' : '#555',
-                        strokeWidth: isSelected ? 0.8 : country ? 0.7 : 0.4,
-                        outline: 'none',
-                        cursor: country ? 'pointer' : 'default',
-                        filter: country
-                          ? `${isSelected ? '' : 'url(#land-shadow)'} brightness(1.2)`
-                          : 'none',
-                      },
-                      pressed: { fill, outline: 'none' },
-                    }}
+                    geo={geo}
+                    fill={fill}
+                    isSelected={isSelected}
+                    isClaimed={isClaimed}
+                    onHover={handleGeoEnter}
+                    onLeave={handleGeoLeave}
+                    onClick={handleGeoClick}
                   />
                 );
               })
             }
           </Geographies>
         </ZoomableGroup>
-
-        <rect
-          x="-50%"
-          y="-50%"
-          width="200%"
-          height="200%"
-          filter="url(#paper-grain)"
-          style={{ mixBlendMode: 'overlay', pointerEvents: 'none' }}
-        />
       </ComposableMap>
 
       <div
