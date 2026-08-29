@@ -102,6 +102,10 @@ export const warlordAsia: ScenarioDefinition = {
 
     // Portuguese colonies in Asia
     'PT': 'gbr',       // Macau & Timor mapped to British for simplicity
+    'TL': 'gbr',       // East Timor
+    'MV': 'gbr',       // Maldives
+    'IO': 'gbr',       // British Indian Ocean Territory
+    '-1': 'gbr',       // Disputed/unassigned territories (Kashmir, Spratly, etc.)
   },
 
   /**
@@ -620,6 +624,33 @@ export const warlordAsia: ScenarioDefinition = {
     'CHN-CITY-540500': 'wm_tibet',
     'CHN-CITY-540600': 'wm_tibet',
     'CHN-CITY-542500': 'wm_tibet',
+
+    'CHN-CITY-810001': 'gbr',
+    'CHN-CITY-810002': 'gbr',
+    'CHN-CITY-810003': 'gbr',
+    'CHN-CITY-810004': 'gbr',
+    'CHN-CITY-810005': 'gbr',
+    'CHN-CITY-810006': 'gbr',
+    'CHN-CITY-810007': 'gbr',
+    'CHN-CITY-810008': 'gbr',
+    'CHN-CITY-810009': 'gbr',
+    'CHN-CITY-810010': 'gbr',
+    'CHN-CITY-810011': 'gbr',
+    'CHN-CITY-810012': 'gbr',
+    'CHN-CITY-810013': 'gbr',
+    'CHN-CITY-810014': 'gbr',
+    'CHN-CITY-810015': 'gbr',
+    'CHN-CITY-810016': 'gbr',
+    'CHN-CITY-810017': 'gbr',
+    'CHN-CITY-810018': 'gbr',
+    'CHN-CITY-820001': 'gbr',
+    'CHN-CITY-820002': 'gbr',
+    'CHN-CITY-820003': 'gbr',
+    'CHN-CITY-820004': 'gbr',
+    'CHN-CITY-820005': 'gbr',
+    'CHN-CITY-820006': 'gbr',
+    'CHN-CITY-820007': 'gbr',
+    'CHN-CITY-820008': 'gbr',
 
   },
 };
