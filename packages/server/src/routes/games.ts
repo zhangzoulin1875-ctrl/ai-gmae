@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { WWI_COUNTRIES } from '@wwi/shared';
 import { prisma } from '../lib/prisma.js';
+import { RuleBasedAI } from '../services/rule-based-ai.js';
 import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
@@ -201,30 +202,37 @@ router.post('/:id/orders', authMiddleware, async (req: any, res) => {
     const player = game.players.find((p) => p.userId === req.user.id);
     if (!player) return res.status(403).json({ error: '你未加入此戰局' });
 
-    const { type, fromTerritoryId, targetTerritoryId, infantry, artillery, cavalry, divisionIds, recruitComposition, details } = req.body;
+    // Support both single order and batch (req.body.orders array)
+    const orderList = Array.isArray(req.body.orders) ? req.body.orders : [req.body];
+    const created = [];
 
-    if (!type) return res.status(400).json({ error: '必須指定指令類型' });
+    for (const ord of orderList) {
+      if (!ord.type) {
+        if (orderList.length === 1) return res.status(400).json({ error: '必須指定指令類型' });
+        continue; // skip invalid in batch
+      }
+      const order = await prisma.order.create({
+        data: {
+          gameId: game.id,
+          playerId: player.id,
+          countryId: player.countryId,
+          turn: game.currentTurn,
+          type: ord.type,
+          fromTerritoryId: ord.fromTerritoryId || null,
+          targetTerritoryId: ord.targetTerritoryId || null,
+          infantry: ord.infantry || null,
+          artillery: ord.artillery || null,
+          cavalry: ord.cavalry || null,
+          divisionIds: Array.isArray(ord.divisionIds) ? ord.divisionIds : [],
+          recruitComposition: ord.recruitComposition || null,
+          details: ord.details || null,
+          status: 'PENDING',
+        },
+      });
+      created.push(order);
+    }
 
-    const order = await prisma.order.create({
-      data: {
-        gameId: game.id,
-        playerId: player.id,
-        countryId: player.countryId,
-        turn: game.currentTurn,
-        type,
-        fromTerritoryId: fromTerritoryId || null,
-        targetTerritoryId: targetTerritoryId || null,
-        infantry: infantry || null,
-        artillery: artillery || null,
-        cavalry: cavalry || null,
-        divisionIds: Array.isArray(divisionIds) ? divisionIds : [],
-        recruitComposition: recruitComposition || null,
-        details: details || null,
-        status: 'PENDING',
-      },
-    });
-
-    res.json({ success: true, order });
+    res.json({ success: true, orders: created, order: created[created.length - 1] });
   } catch (error: any) {
     console.error('[Games] orders error:', error.message);
     res.status(500).json({ error: error.message });
@@ -262,6 +270,61 @@ router.get('/:id/orders', authMiddleware, async (req: any, res) => {
       })),
     });
   } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/games/:id/ai-suggest — generate AI-suggested orders preview (not saved)
+router.post('/:id/ai-suggest', authMiddleware, async (req: any, res) => {
+  try {
+    const game = await prisma.gameRoom.findUnique({
+      where: { id: req.params.id },
+      include: { players: true },
+    });
+    if (!game) return res.status(404).json({ error: '找不到戰局' });
+    if (game.status !== 'ACTIVE') return res.status(400).json({ error: '戰局不在進行中' });
+
+    const player = game.players.find((p) => p.userId === req.user.id);
+    if (!player) return res.status(403).json({ error: '你未加入此戰局' });
+
+    // Get player's country state for current turn
+    const myState = await prisma.countryState.findFirst({
+      where: { gameId: game.id, countryId: player.countryId, turn: game.currentTurn },
+    });
+    if (!myState) return res.status(404).json({ error: '找不到你的國家狀態' });
+
+    // Get all country states for AI assessment
+    const allStates = await prisma.countryState.findMany({
+      where: { gameId: game.id, turn: game.currentTurn },
+    });
+
+    // Run rule-based AI to generate suggestions
+    const ruleAI = new RuleBasedAI();
+    const suggestions = ruleAI.generateOrders(myState as any, allStates as any, game.currentTurn);
+
+    // Map to client-friendly format with Chinese labels
+    const COUNTRY_NAMES = Object.fromEntries(WWI_COUNTRIES.map((c) => [c.id, c.nameZh]));
+    const TYPE_LABELS: Record<string, string> = {
+      ATTACK: '進攻', DEFEND: '防守', FORTIFY: '築防', MOVE: '調動',
+      RECRUIT: '徵兵', DIPLOMACY: '外交',
+    };
+
+    const labeled = suggestions.map((s, i) => ({
+      index: i,
+      type: s.type,
+      typeLabel: TYPE_LABELS[s.type] || s.type,
+      fromTerritoryId: s.fromTerritoryId,
+      targetTerritoryId: s.targetTerritoryId,
+      targetLabel: s.targetTerritoryId ? (COUNTRY_NAMES[s.targetTerritoryId] || s.targetTerritoryId) : null,
+      infantry: s.infantry,
+      artillery: s.artillery,
+      cavalry: s.cavalry,
+      details: s.details,
+    }));
+
+    res.json({ success: true, suggestions: labeled });
+  } catch (error: any) {
+    console.error('[Games] ai-suggest error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });

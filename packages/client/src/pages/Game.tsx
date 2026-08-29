@@ -100,6 +100,11 @@ const Game: React.FC = () => {
   const [unitError, setUnitError] = useState('');
   const [unitSuccess, setUnitSuccess] = useState('');
 
+  // Auto-decision (AI suggestion) state
+  const [aiSuggestions, setAiSuggestions] = useState<any[]>([]);
+  const [aiSuggesting, setAiSuggesting] = useState(false);
+  const [showAiSuggestModal, setShowAiSuggestModal] = useState(false);
+
   const CATEGORY_LABELS: Record<string, string> = {
     infantry: '步兵', cavalry: '騎兵', artillery: '砲兵', fleet: '艦隊', armored: '裝甲',
   };
@@ -423,6 +428,73 @@ const Game: React.FC = () => {
     socket.emit('mark_ready', { gameId, countryId: state.myCountryId });
   };
 
+  // Auto-decision: generate AI suggestions for the player
+  const handleAiSuggest = async () => {
+    if (!gameId || !state?.myCountryId) return;
+    setAiSuggesting(true);
+    setFormError(null);
+    try {
+      const res = await apiFetch(`/api/games/${gameId}/ai-suggest`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json();
+        setFormError(data.error || 'AI 建議生成失敗');
+        return;
+      }
+      const data = await res.json();
+      setAiSuggestions(data.suggestions || []);
+      setShowAiSuggestModal(true);
+    } catch (err: any) {
+      setFormError('AI 建議生成失敗: ' + (err.message || '未知錯誤'));
+    } finally {
+      setAiSuggesting(false);
+    }
+  };
+
+  // Confirm: submit all suggested orders as a batch
+  const handleConfirmAiSuggest = async () => {
+    if (!gameId || aiSuggestions.length === 0) return;
+    setAiSuggesting(true);
+    try {
+      const orders = aiSuggestions.map(s => ({
+        type: s.type,
+        fromTerritoryId: s.fromTerritoryId || undefined,
+        targetTerritoryId: s.targetTerritoryId || undefined,
+        infantry: s.infantry || undefined,
+        artillery: s.artillery || undefined,
+        cavalry: s.cavalry || undefined,
+        details: s.details || undefined,
+      }));
+
+      const res = await apiFetch(`/api/games/${gameId}/orders`, {
+        method: 'POST',
+        body: JSON.stringify({ orders }),
+      });
+
+      if (res.ok) {
+        setMessage('✓ AI 建議指令已全部提交');
+        setTimeout(() => setMessage(null), 4000);
+        setShowAiSuggestModal(false);
+        setAiSuggestions([]);
+        fetchOrders();
+        if (socket && socket.connected) {
+          socket.emit('submit_orders', { gameId, orders });
+        }
+      } else {
+        const data = await res.json();
+        setFormError(data.error || '提交失敗');
+      }
+    } catch (err: any) {
+      setFormError('提交失敗: ' + (err.message || '未知錯誤'));
+    } finally {
+      setAiSuggesting(false);
+    }
+  };
+
+  const handleCancelAiSuggest = () => {
+    setShowAiSuggestModal(false);
+    setAiSuggestions([]);
+  };
+
   const handleSendChat = (e: React.FormEvent) => {
     e.preventDefault();
     if (!socket || !gameId || !chatInput.trim()) return;
@@ -710,14 +782,25 @@ const Game: React.FC = () => {
                 <div className="card">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                     <h3 style={{ margin: 0 }}>下達作戰指令</h3>
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}
-                      onClick={handleClearForm}
-                    >
-                      🗑️ 清除指令
-                    </button>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}
+                        onClick={handleAiSuggest}
+                        disabled={aiSuggesting}
+                      >
+                        {aiSuggesting ? '⏳ 分析中...' : '🤖 自動決策'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}
+                        onClick={handleClearForm}
+                      >
+                        🗑️ 清除指令
+                      </button>
+                    </div>
                   </div>
 
                   {state.myCountryId ? (
@@ -1247,6 +1330,80 @@ const Game: React.FC = () => {
                 onClick={() => setShowResolutionModal(false)}
               >
                 關閉戰報
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Suggestion Preview Modal */}
+      {showAiSuggestModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.7)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 2000,
+        }}>
+          <div style={{
+            background: 'var(--bg-surface)', borderRadius: '0.75rem',
+            padding: '1.5rem', maxWidth: '600px', width: '90%',
+            maxHeight: '80vh', overflowY: 'auto',
+            border: '1px solid var(--border)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          }}>
+            <h3 style={{ marginTop: 0, marginBottom: '1rem' }}>🤖 AI 戰略建議預覽</h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+              以下指令由 AI 根據當前局勢自動生成，請確認後一鍵執行，或取消返回手動操作。
+            </p>
+
+            {aiSuggestions.length === 0 ? (
+              <p style={{ color: 'var(--text-muted)' }}>AI 未生成任何建議指令。當前局勢可能不需要行動。</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {aiSuggestions.map((s, i) => (
+                  <div key={i} style={{
+                    background: 'var(--bg-card)', borderRadius: '0.5rem',
+                    padding: '0.85rem', border: '1px solid var(--border)',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                      <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                        {i + 1}. {s.typeLabel}
+                      </span>
+                      {s.targetLabel && (
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          目標：{s.targetLabel}
+                        </span>
+                      )}
+                    </div>
+                    {s.details && (
+                      <p style={{ margin: '0.3rem 0 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                        {s.details}
+                      </p>
+                    )}
+                    <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+                      {s.infantry != null && <span>步兵 {s.infantry.toLocaleString()}</span>}
+                      {s.artillery != null && <span>砲兵 {s.artillery.toLocaleString()}</span>}
+                      {s.cavalry != null && <span>騎兵 {s.cavalry.toLocaleString()}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '1.25rem' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleCancelAiSuggest}
+                disabled={aiSuggesting}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleConfirmAiSuggest}
+                disabled={aiSuggesting || aiSuggestions.length === 0}
+              >
+                {aiSuggesting ? '提交中...' : '✓ 確認執行'}
               </button>
             </div>
           </div>
