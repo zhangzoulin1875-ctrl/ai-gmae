@@ -8,7 +8,8 @@ const discordService = new DiscordService();
 const JWT_SECRET = process.env.JWT_SECRET || 'wwi-game-secret-change-in-production';
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID || '';
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET || '';
-const DISCORD_REDIRECT_URI = process.env.DISCORD_REDIRECT_URI || 'http://localhost:5173/api/auth/discord/callback';
+const DISCORD_REDIRECT_URI = process.env.DISCORD_REDIRECT_URI || 'http://localhost:3001/api/auth/discord/callback';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // Redirect to Discord OAuth2
 router.get('/discord', (_req, res) => {
@@ -48,42 +49,20 @@ router.get('/discord/callback', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    // Set cookie and redirect to lobby
+    // Set cookie (cross-domain: static client + separate API server) and redirect to lobby
+    const isProd = process.env.NODE_ENV === 'production';
     res.cookie('token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: isProd,
+      sameSite: isProd ? 'none' : 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    res.redirect('/lobby');
+    res.redirect(`${FRONTEND_URL}/lobby`);
   } catch (error: any) {
     console.error('[Auth] Discord callback error:', error.message);
-    res.redirect('/?error=auth_failed');
+    res.redirect(`${FRONTEND_URL}/?error=auth_failed`);
   }
-});
-
-// Guest login
-router.post('/guest', (_req, res) => {
-  const guestId = `guest_${Math.random().toString(36).substring(2, 10)}`;
-  const token = jwt.sign(
-    {
-      id: guestId,
-      username: `Guest_${guestId.slice(-4)}`,
-      avatar: null,
-      provider: 'guest',
-    },
-    JWT_SECRET,
-    { expiresIn: '7d' }
-  );
-
-  res.json({
-    token,
-    user: {
-      id: guestId,
-      username: `Guest_${guestId.slice(-4)}`,
-      avatar: null,
-    },
-  });
 });
 
 // Get current user
@@ -108,7 +87,8 @@ router.get('/me', (req, res) => {
 
 // Logout
 router.post('/logout', (_req, res) => {
-  res.clearCookie('token');
+  const isProd = process.env.NODE_ENV === 'production';
+  res.clearCookie('token', { sameSite: isProd ? 'none' : 'lax', secure: isProd });
   res.json({ success: true });
 });
 

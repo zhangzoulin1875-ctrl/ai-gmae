@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import { GameRoom, Order, OrderType, WWI_COUNTRIES, generateWorldMap, TerritoryGeometry } from '@wwi/shared';
 import GameMap from '../components/GameMap';
+import { getApiUrl, getSocketUrl } from '../lib/api';
 
 const ORDER_TYPE_LABELS: Record<OrderType, string> = {
   ATTACK: '進攻 (主動出擊)',
@@ -36,7 +37,8 @@ const Game: React.FC = () => {
     if (!gameId) return;
 
     // Connect Socket.IO
-    const newSocket = io('/', { path: '/socket.io' });
+    const socketUrl = getSocketUrl();
+    const newSocket = socketUrl ? io(socketUrl, { path: '/socket.io', withCredentials: true }) : io({ path: '/socket.io', withCredentials: true });
     setSocket(newSocket);
 
     newSocket.emit('join_room', { gameId, countryId: playerCountry });
@@ -58,7 +60,7 @@ const Game: React.FC = () => {
     });
 
     // Fetch initial state via REST
-    fetch(`/api/games/${gameId}`)
+    fetch(getApiUrl(`/api/games/${gameId}`), { credentials: 'include' })
       .then((res) => res.json())
       .then((data) => {
         if (data && data.id) setGame(data);

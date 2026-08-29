@@ -1,6 +1,7 @@
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { Server as SocketIOServer } from 'socket.io';
 import dotenv from 'dotenv';
 
@@ -19,16 +20,20 @@ import { TurnScheduler } from './services/turn-scheduler.js';
 
 const app = express();
 const server = http.createServer(app);
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+
 const io = new SocketIOServer(server, {
   cors: {
-    origin: '*',
+    origin: FRONTEND_URL,
     methods: ['GET', 'POST'],
+    credentials: true,
   },
 });
 
 // Middleware
-app.use(cors());
+app.use(cors({ origin: FRONTEND_URL, credentials: true }));
 app.use(express.json());
+app.use(cookieParser());
 
 // Routes
 app.use('/api/auth', authRoutes);

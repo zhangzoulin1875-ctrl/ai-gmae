@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GameRoom, WWI_COUNTRIES, CountryDefinition, SIDE_LABELS_ZH } from '@wwi/shared';
+import { getApiUrl } from '../lib/api';
 
 const Lobby: React.FC = () => {
   const navigate = useNavigate();
@@ -31,7 +32,7 @@ const Lobby: React.FC = () => {
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch('/api/admin/games', { headers });
+      const res = await fetch(getApiUrl('/api/admin/games'), { headers, credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setGames(data.games || []);
@@ -49,8 +50,9 @@ const Lobby: React.FC = () => {
 
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch('/api/games', {
+      const res = await fetch(getApiUrl('/api/games'), {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {})
@@ -76,7 +78,7 @@ const Lobby: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
+    await fetch(getApiUrl('/api/auth/logout'), { method: 'POST', credentials: 'include' });
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     navigate('/');

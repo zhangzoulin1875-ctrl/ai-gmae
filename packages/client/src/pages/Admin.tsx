@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { AIConfig, AIProvider, AdminConfig } from '@wwi/shared';
+import { getApiUrl } from '../lib/api';
 
 const Admin: React.FC = () => {
   const [authed, setAuthed] = useState(false);
@@ -19,7 +20,7 @@ const Admin: React.FC = () => {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/admin/login', {
+      const res = await fetch(getApiUrl('/api/admin/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password }),
@@ -42,7 +43,7 @@ const Admin: React.FC = () => {
   const loadConfig = async () => {
     const token = localStorage.getItem('adminToken');
     try {
-      const res = await fetch('/api/admin/config', {
+      const res = await fetch(getApiUrl('/api/admin/config'), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -107,7 +108,7 @@ const Admin: React.FC = () => {
         temperature: 0.7,
         updatedAt: new Date().toISOString(),
       };
-      const res = await fetch('/api/admin/ai-config', {
+      const res = await fetch(getApiUrl('/api/admin/ai-config'), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -136,7 +137,7 @@ const Admin: React.FC = () => {
     setTestingProvider(id);
     try {
       const token = localStorage.getItem('adminToken');
-      const res = await fetch('/api/admin/test-provider', {
+      const res = await fetch(getApiUrl('/api/admin/test-provider'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
