@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { WWI_COUNTRIES, recruitCost } from '@wwi/shared';
+import { getTerritoryStats } from '../lib/territory-stats.js';
 import type { AIProvider } from '@wwi/shared';
 import { AIEngine } from './ai-engine.js';
 import { AIPlayerService } from './ai-player.js';
@@ -333,10 +334,17 @@ export class TurnResolver {
       resolvedByProvider = 'deterministic-fallback';
     }
 
-    // Economy & regen
+    // Economy & regen — dynamic, driven by currently-held territory
+    // (area + population), not a fixed per-country snapshot.
+    // Capturing enemy provinces increases future growth; losing territory
+    // decreases it. This composes with AI policy deltas applied above.
     for (const cs of stateMap.values()) {
-      cs.gold += cs.industry * 5;
-      cs.manpower += Math.floor(cs.manpower * 0.05) + 1000;
+      const { areaKm2, population } = getTerritoryStats(cs.territories);
+      // Gold: tax base from population + land value from area
+      cs.gold += Math.round(cs.industry * 5 + (areaKm2 / 50_000));
+      // Manpower: population-driven natural growth + small base
+      cs.manpower += Math.round(population * 0.0005) + Math.floor(cs.manpower * 0.02) + 1000;
+      // Morale: slow passive recovery
       cs.morale = Math.min(100, cs.morale + 1);
     }
 
