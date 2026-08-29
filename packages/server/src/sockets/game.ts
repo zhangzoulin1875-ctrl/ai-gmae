@@ -65,6 +65,12 @@ export function handleGameSockets(io: SocketIOServer, socket: Socket) {
     }
 
     try {
+      const dbUser = await prisma.user.findUnique({ where: { id: userId } });
+      if (!dbUser) {
+        socket.emit('error', { message: 'stale_session', code: 'stale_session' });
+        return;
+      }
+
       const game = await prisma.gameRoom.findUnique({
         where: { id: gameId },
         include: { players: true },

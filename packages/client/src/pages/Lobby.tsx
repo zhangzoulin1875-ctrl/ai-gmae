@@ -64,8 +64,13 @@ const Lobby: React.FC = () => {
       const data = await res.json();
       if (res.ok) {
         navigate(`/game/${data.gameId}`);
+      } else if (data.error === 'stale_session') {
+        setError('登入資訊已失效,將為你重新導向登入頁面...');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        setTimeout(() => navigate('/'), 1500);
       } else {
-        setError(data.error || '選擇國家失敗');
+        setError(data.error || data.message || '選擇國家失敗');
         fetchCurrent();
       }
     } catch (err) {

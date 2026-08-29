@@ -65,6 +65,14 @@ router.post('/join', authMiddleware, async (req: any, res) => {
       return res.status(400).json({ error: '無效的國家' });
     }
 
+    // Defensive check: make sure the logged-in user still exists in DB.
+    // A stale JWT cookie (e.g. issued before a DB reset/redeploy) would otherwise
+    // fail with a confusing foreign-key error on Player.create.
+    const dbUser = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!dbUser) {
+      return res.status(401).json({ error: 'stale_session', message: '登入資訊已失效,請重新登入' });
+    }
+
     const game = await findCurrentGame();
     if (!game) {
       return res.status(404).json({ error: '目前沒有進行中的戰局,請等待管理員開啟新戰局' });
