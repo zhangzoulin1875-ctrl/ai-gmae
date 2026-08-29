@@ -6,7 +6,7 @@ import type { CountryDefinition } from '@wwi/shared';
 const GEOJSON_URL = '/maps/provinces-1914.geojson';
 
 const OCEAN_COLOR = '#0a2340';
-const UNCLAIMED_COLOR = '#3a3f38';
+const UNCLAIMED_COLOR = '#6b6358'; // medium warm gray — clearly distinct from ocean
 const BORDER_COLOR = '#0c1016';
 const HOVER_BORDER_COLOR = '#e8d8b8';
 const SELECTED_BORDER_COLOR = '#ffd166';
@@ -33,7 +33,6 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string; color: string } | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
   const [mapReady, setMapReady] = useState(false);
-  const [debugInfo, setDebugInfo] = useState<string>('');
 
   countriesRef.current = countries;
   onSelectRef.current = onSelectCountry;
@@ -144,7 +143,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
               'case',
               ['boolean', ['feature-state', 'hover'], false],
               1.0,
-              0.78,
+              0.85,
             ],
           },
         });
@@ -252,31 +251,6 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
         });
 
         setMapReady(true);
-        setDebugInfo('layers added, waiting for tiles...');
-
-        map.on('sourcedata', (e: any) => {
-          if (e.sourceId === 'provinces') {
-            const loaded = map.isSourceLoaded('provinces');
-            let rendered = 0;
-            try {
-              rendered = map.queryRenderedFeatures({ layers: ['province-fill'] }).length;
-            } catch {
-              rendered = -1;
-            }
-            setDebugInfo(`sourcedata: loaded=${loaded} dataType=${e.dataType} rendered=${rendered} zoom=${map.getZoom().toFixed(2)}`);
-          }
-        });
-
-        setTimeout(() => {
-          try {
-            const rendered = map.queryRenderedFeatures({ layers: ['province-fill'] }).length;
-            const hasSource = !!map.getSource('provinces');
-            const hasLayer = !!map.getLayer('province-fill');
-            setDebugInfo(`[3s check] hasSource=${hasSource} hasLayer=${hasLayer} rendered=${rendered} zoom=${map.getZoom().toFixed(2)} center=${JSON.stringify(map.getCenter())}`);
-          } catch (e) {
-            setDebugInfo('3s check failed: ' + (e as Error).message);
-          }
-        }, 3000);
       } catch (err) {
         console.error('[WorldMap] Layer setup failed:', err);
         const e = err as Error;
@@ -421,26 +395,6 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
         </div>
       )}
 
-      {debugInfo && !mapError && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '0.5rem',
-            right: '0.5rem',
-            fontSize: '0.65rem',
-            color: '#4ade80',
-            background: 'rgba(0,0,0,0.7)',
-            padding: '0.3rem 0.5rem',
-            borderRadius: '4px',
-            pointerEvents: 'none',
-            maxWidth: '90%',
-            whiteSpace: 'pre-wrap',
-            zIndex: 100,
-          }}
-        >
-          {debugInfo}
-        </div>
-      )}
 
       {/* Hint */}
       {!mapError && (
