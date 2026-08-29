@@ -90,10 +90,14 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
         },
         center: [10, 25],
         zoom: 1.2,
-        maxBounds: [
-          [-180, -75],
-          [180, 85],
-        ],
+        minZoom: 0.5,
+        maxZoom: 8,
+        // NOTE: maxBounds removed — when the container has zero size at
+        // construction time (before layout settles), MapLibre's bounds-fit
+        // math divides by a ~0 viewport and clamps zoom to its default max
+        // (22) while snapping center to the bound edge (lng 180). That is
+        // exactly the corrupted camera we kept seeing. minZoom/maxZoom give
+        // similar UX protection without that failure mode.
         attributionControl: false,
         dragRotate: false,
         pitchWithRotate: false,
