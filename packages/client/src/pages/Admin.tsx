@@ -797,8 +797,10 @@ const Admin: React.FC = () => {
 
       {/* Games Tab */}
       {tab === 'games' && (() => {
-        const currentGame = games.find((g) => g.status === 'WAITING' || g.status === 'ACTIVE');
-        const history = games.filter((g) => g !== currentGame);
+        const MAX_CONCURRENT_GAMES = 2;
+        const currentGames = games.filter((g) => g.status === 'WAITING' || g.status === 'ACTIVE');
+        const history = games.filter((g) => !currentGames.includes(g));
+        const canCreateMore = currentGames.length < MAX_CONCURRENT_GAMES;
         return (
           <div>
             {gameError && (
@@ -808,33 +810,38 @@ const Admin: React.FC = () => {
             )}
 
             <div className="card" style={{ marginBottom: '1.5rem' }}>
-              <h3 style={{ marginBottom: '1rem' }}>目前戰局</h3>
-              {currentGame ? (
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <p style={{ fontSize: '1.2rem', fontWeight: 600 }}>{currentGame.name}</p>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                      狀態: <span style={{ color: 'var(--accent-gold)' }}>{currentGame.status}</span> | 第 {currentGame.currentTurn} 回合 | 玩家: {currentGame.playerCount}/{currentGame.maxPlayers}
-                    </p>
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <button
-                      onClick={() => resolveTurn(currentGame.id)}
-                      disabled={gameActionLoading}
-                      style={{ padding: '0.6rem 1.5rem', backgroundColor: '#22c55e', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 600, cursor: 'pointer' }}
-                    >
-                      立即結算
-                    </button>
-                    <button
-                      onClick={() => endGame(currentGame.id)}
-                      disabled={gameActionLoading}
-                      style={{ padding: '0.6rem 1.5rem', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 600, cursor: 'pointer' }}
-                    >
-                      結束戰局
-                    </button>
-                  </div>
+              <h3 style={{ marginBottom: '1rem' }}>目前戰局（{currentGames.length}/{MAX_CONCURRENT_GAMES}）</h3>
+              {currentGames.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: canCreateMore ? '1.5rem' : 0 }}>
+                  {currentGames.map((currentGame) => (
+                    <div key={currentGame.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '4px' }}>
+                      <div>
+                        <p style={{ fontSize: '1.2rem', fontWeight: 600 }}>{currentGame.name}</p>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                          狀態: <span style={{ color: 'var(--accent-gold)' }}>{currentGame.status}</span> | 第 {currentGame.currentTurn} 回合 | 玩家: {currentGame.playerCount}/{currentGame.maxPlayers}
+                        </p>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button
+                          onClick={() => resolveTurn(currentGame.id)}
+                          disabled={gameActionLoading}
+                          style={{ padding: '0.6rem 1.5rem', backgroundColor: '#22c55e', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          立即結算
+                        </button>
+                        <button
+                          onClick={() => endGame(currentGame.id)}
+                          disabled={gameActionLoading}
+                          style={{ padding: '0.6rem 1.5rem', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          結束戰局
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ) : (
+              )}
+              {canCreateMore ? (
                 <form onSubmit={createGame} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                   <div style={{ flex: 1, minWidth: '200px' }}>
                     <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
@@ -876,6 +883,10 @@ const Admin: React.FC = () => {
                     {gameActionLoading ? '開啟中...' : '開啟新戰局'}
                   </button>
                 </form>
+              ) : (
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                  已達上限 {MAX_CONCURRENT_GAMES} 個並行戰局，請先結束一個戰局才能開啟新戰局。
+                </p>
               )}
               <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '0.75rem' }}>
                 最多可同時開啟 2 個戰局（主戰局 + Beta 測試服）。玩家進入大廳後採先搶先贏方式選擇國家,選完就只能等下一局。

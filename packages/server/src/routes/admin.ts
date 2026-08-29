@@ -15,7 +15,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 // AI config is persisted in the AIProviderConfig table (see helpers below).
 // No in-memory state here — this survives server restarts / redeploys.
 
-// Admin login
+// Admin login (password)
 router.post('/login', (req, res) => {
   const { password } = req.body;
   if (!password) {
@@ -28,6 +28,33 @@ router.post('/login', (req, res) => {
 
   const token = jwt.sign({ role: 'admin' }, JWT_SECRET, { expiresIn: '24h' });
   res.json({ token });
+});
+
+// Admin login via account binding — if the currently logged-in Discord account
+// has isAdmin=true in the DB, silently issue an admin token without the password.
+router.post('/login-with-account', async (req, res) => {
+  try {
+    const userToken = req.cookies?.token || req.headers['x-user-token'];
+    if (!userToken) return res.status(401).json({ error: '請先以帳號登入' });
+
+    let decoded: any;
+    try {
+      decoded = jwt.verify(userToken, JWT_SECRET);
+    } catch {
+      return res.status(401).json({ error: '登入資訊已失效' });
+    }
+    if (!decoded?.id) return res.status(401).json({ error: '登入資訊已失效' });
+
+    const dbUser = await prisma.user.findUnique({ where: { id: decoded.id } });
+    if (!dbUser || !dbUser.isAdmin) {
+      return res.status(403).json({ error: '此帳號沒有管理員權限' });
+    }
+
+    const token = jwt.sign({ role: 'admin', userId: dbUser.id, username: dbUser.username }, JWT_SECRET, { expiresIn: '24h' });
+    res.json({ token, username: dbUser.username });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Auth middleware
@@ -543,6 +570,56 @@ router.get('/players', adminAuth, async (req, res) => {
     });
   } catch (error: any) {
     console.error('[Admin] players error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// === Account management (bind admin rights to a Discord account) ===
+// GET /api/admin/accounts — list all user accounts, with isAdmin flag
+router.get('/accounts', adminAuth, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 50, 500);
+    const skip = Number(req.query.skip) || 0;
+    const search = req.query.search as string | undefined;
+
+    const where: any = {};
+    if (search) {
+      where.username = { contains: search, mode: 'insensitive' };
+    }
+
+    const [accounts, total] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        orderBy: [{ isAdmin: 'desc' }, { createdAt: 'desc' }],
+        take: limit,
+        skip,
+        select: { id: true, username: true, discordId: true, avatar: true, isAdmin: true, createdAt: true },
+      }),
+      prisma.user.count({ where }),
+    ]);
+
+    res.json({ accounts, total });
+  } catch (error: any) {
+    console.error('[Admin] accounts error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/admin/accounts/:userId/set-admin — grant/revoke account-bound admin rights
+router.post('/accounts/:userId/set-admin', adminAuth, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { isAdmin } = req.body as { isAdmin?: boolean };
+    if (typeof isAdmin !== 'boolean') {
+      return res.status(400).json({ error: '必須提供 isAdmin (boolean)' });
+    }
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { isAdmin },
+      select: { id: true, username: true, isAdmin: true },
+    });
+    res.json({ success: true, user });
+  } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });

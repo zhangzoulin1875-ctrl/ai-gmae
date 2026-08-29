@@ -32,20 +32,62 @@ function getTotalCountries(scenarioId: string): number {
   return scenario ? scenario.countries.length : WWI_COUNTRIES.length;
 }
 
-// The single game that's open for joining / in progress right now (if any)
-async function findCurrentGame() {
-  return prisma.gameRoom.findFirst({
+// All games open for joining / in progress right now (there can be up to
+// MAX_CONCURRENT_GAMES — see admin.ts — e.g. a main game + a beta test game)
+async function findActiveGames() {
+  return prisma.gameRoom.findMany({
     where: { status: { in: ['WAITING', 'ACTIVE'] } },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { createdAt: 'asc' },
     include: { players: { include: { user: true } } },
   });
 }
 
-// GET /api/games/current
+// The specific active game a user has already joined (if any), or null.
+async function findGameForUser(userId: string) {
+  const games = await findActiveGames();
+  return games.find((g) => g.players.some((p) => p.userId === userId)) || null;
+}
+
+function serializeGameInfo(game: Awaited<ReturnType<typeof findActiveGames>>[number], userId: string) {
+  const myPlayer = game.players.find((p) => p.userId === userId);
+  return {
+    game: {
+      id: game.id,
+      name: game.name,
+      status: game.status,
+      currentTurn: game.currentTurn,
+      createdAt: game.createdAt,
+      scenarioId: game.scenarioId,
+    },
+    totalCountries: getTotalCountries(game.scenarioId || 'wwi-global'),
+    takenCountryIds: game.players.map((p) => p.countryId),
+    myCountryId: myPlayer ? myPlayer.countryId : null,
+    players: game.players.map((p) => ({
+      countryId: p.countryId,
+      username: p.user.username,
+      avatar: p.user.avatar,
+      isAI: p.isAI,
+    })),
+  };
+}
+
+// GET /api/games/list — every currently open/active game (up to MAX_CONCURRENT_GAMES)
+router.get('/list', authMiddleware, async (req: any, res) => {
+  try {
+    const games = await findActiveGames();
+    res.json({ games: games.map((g) => serializeGameInfo(g, req.user.id)) });
+  } catch (error: any) {
+    console.error('[Games] list error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/games/current — kept for backward-compat; returns the user's
+// joined game if any, otherwise the first open game.
 router.get('/current', authMiddleware, async (req: any, res) => {
   try {
-    const game = await findCurrentGame();
-    if (!game) {
+    const games = await findActiveGames();
+    if (games.length === 0) {
       return res.json({
         game: null,
         totalCountries: getTotalCountries('wwi-global'),
@@ -54,28 +96,8 @@ router.get('/current', authMiddleware, async (req: any, res) => {
         players: [],
       });
     }
-
-    const myPlayer = game.players.find((p) => p.userId === req.user.id);
-
-    res.json({
-      game: {
-        id: game.id,
-        name: game.name,
-        status: game.status,
-        currentTurn: game.currentTurn,
-        createdAt: game.createdAt,
-        scenarioId: game.scenarioId,
-      },
-      totalCountries: getTotalCountries(game.scenarioId || 'wwi-global'),
-      takenCountryIds: game.players.map((p) => p.countryId),
-      myCountryId: myPlayer ? myPlayer.countryId : null,
-      players: game.players.map((p) => ({
-        countryId: p.countryId,
-        username: p.user.username,
-        avatar: p.user.avatar,
-        isAI: p.isAI,
-      })),
-    });
+    const mine = games.find((g) => g.players.some((p) => p.userId === req.user.id));
+    res.json(serializeGameInfo(mine || games[0], req.user.id));
   } catch (error: any) {
     console.error('[Games] current error:', error.message);
     res.status(500).json({ error: error.message });
@@ -85,16 +107,21 @@ router.get('/current', authMiddleware, async (req: any, res) => {
 // POST /api/games/join
 router.post('/join', authMiddleware, async (req: any, res) => {
   try {
-    const { countryId } = req.body as { countryId?: string };
+    const { countryId, gameId } = req.body as { countryId?: string; gameId?: string };
 
     const dbUser = await prisma.user.findUnique({ where: { id: req.user.id } });
     if (!dbUser) {
       return res.status(401).json({ error: 'stale_session', message: '登入資訊已失效,請重新登入' });
     }
 
-    const game = await findCurrentGame();
-    if (!game) {
+    const activeGames = await findActiveGames();
+    if (activeGames.length === 0) {
       return res.status(404).json({ error: '目前沒有進行中的戰局,請等待管理員開啟新戰局' });
+    }
+    // gameId is optional for backward-compat with single-game clients — default to the first open game.
+    const game = gameId ? activeGames.find((g) => g.id === gameId) : activeGames[0];
+    if (!game) {
+      return res.status(404).json({ error: '找不到指定的戰局,可能已經結束' });
     }
 
     const validIds = getValidCountryIds(game.scenarioId || 'wwi-global');
@@ -567,7 +594,7 @@ const playerUnitDesigner = new UnitDesignerService();
 // GET /api/games/my-units — list current player's own custom units
 router.get('/my-units', authMiddleware, async (req: any, res) => {
   try {
-    const game = await findCurrentGame();
+    const game = await findGameForUser(req.user.id);
     if (!game) return res.status(404).json({ error: '找不到進行中的戰局' });
 
     const myPlayer = game.players.find((p) => p.userId === req.user.id);
@@ -595,7 +622,7 @@ router.post('/design-unit', authMiddleware, async (req: any, res) => {
     const { prompt, category } = req.body;
     if (!prompt || !category) return res.status(400).json({ error: '必須提供提示詞和兵種類別' });
 
-    const game = await findCurrentGame();
+    const game = await findGameForUser(req.user.id);
     if (!game) return res.status(404).json({ error: '找不到進行中的戰局' });
 
     const myPlayer = game.players.find((p) => p.userId === req.user.id);
