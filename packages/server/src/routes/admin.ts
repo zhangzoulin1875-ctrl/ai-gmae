@@ -575,11 +575,14 @@ router.post('/games/:gameId/ai-mode', adminAuth, async (req, res) => {
 });
 
 // === Unit Design System ===
+// NOTE: Admin no longer designs units directly — every unit is designed by
+// the player who owns it. This section is now read-only monitoring +
+// hard-rule configuration (the rules still govern what players can design).
 import { UnitDesignerService } from '../services/unit-designer.js';
 
 const unitDesigner = new UnitDesignerService();
 
-// List all custom units
+// List all custom units — with designer (player) attribution, for monitoring
 router.get('/units', adminAuth, async (_req, res) => {
   try {
     const units = await unitDesigner.listUnits();
@@ -589,26 +592,7 @@ router.get('/units', adminAuth, async (_req, res) => {
   }
 });
 
-// Design a new unit via LLM
-router.post('/units/design', adminAuth, async (req, res) => {
-  try {
-    const { prompt, category } = req.body;
-    if (!prompt || !category) return res.status(400).json({ error: '必須提供提示詞和兵種類別' });
-
-    const result = await unitDesigner.designUnit({ prompt, category });
-
-    if (result.success) {
-      res.json({ success: true, unit: result.unit });
-    } else {
-      res.status(400).json({ error: result.error });
-    }
-  } catch (error: any) {
-    console.error('[Admin] unit design error:', error.message);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Delete a custom unit
+// Delete a custom unit — admin moderation only (e.g. removing an abusive design)
 router.delete('/units/:id', adminAuth, async (req, res) => {
   try {
     await unitDesigner.deleteUnit(req.params.id);
@@ -618,7 +602,7 @@ router.delete('/units/:id', adminAuth, async (req, res) => {
   }
 });
 
-// Get unit design rules
+// Get unit design rules — still configurable, governs every player's designs
 router.get('/unit-rules', adminAuth, async (_req, res) => {
   try {
     const rules = await unitDesigner.getRules();

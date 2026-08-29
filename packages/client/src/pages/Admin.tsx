@@ -27,15 +27,9 @@ const Admin: React.FC = () => {
   const [aiCountries, setAiCountries] = useState<any[]>([]);
   const [aiCountryLoading, setAiCountryLoading] = useState<string | null>(null);
 
-  // Unit Design state
+  // Unit Design state — read-only monitoring (players design their own units now)
   const [unitList, setUnitList] = useState<any[]>([]);
   const [unitRules, setUnitRules] = useState<any>(null);
-  const [unitDesigning, setUnitDesigning] = useState(false);
-  const [unitDesignPrompt, setUnitDesignPrompt] = useState('');
-  const [unitDesignCategory, setUnitDesignCategory] = useState('infantry');
-  const [unitError, setUnitError] = useState('');
-  const [unitSuccess, setUnitSuccess] = useState('');
-  const [queueStatus, setQueueStatus] = useState<any>(null);
 
   const CATEGORY_LABELS: Record<string, string> = {
     infantry: '步兵', cavalry: '騎兵', artillery: '砲兵', fleet: '艦隊', armored: '裝甲',
@@ -212,29 +206,6 @@ const Admin: React.FC = () => {
       const res = await fetch(getApiUrl('/api/admin/unit-rules'), { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) { const data = await res.json(); setUnitRules(data); }
     } catch {}
-  };
-
-  const handleDesignUnit = async () => {
-    if (!unitDesignPrompt.trim()) return;
-    const token = localStorage.getItem('adminToken');
-    if (!token) return;
-    setUnitDesigning(true); setUnitError(''); setUnitSuccess('');
-    try {
-      const res = await fetch(getApiUrl('/api/admin/units/design'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ prompt: unitDesignPrompt, category: unitDesignCategory }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setUnitSuccess(`✓ 兵種「${data.unit.nameZh}」設計成功！`);
-        setUnitDesignPrompt('');
-        await loadUnits();
-      } else {
-        setUnitError(data.error || '設計失敗');
-      }
-    } catch (e: any) { setUnitError('連線失敗: ' + e.message); }
-    finally { setUnitDesigning(false); }
   };
 
   const handleDeleteUnit = async (id: string) => {
@@ -970,48 +941,13 @@ const Admin: React.FC = () => {
         </div>
       )}
 
-      {/* Unit Design Tab */}
+      {/* Unit Design Tab — read-only monitoring; players design their own units in-game */}
       {tab === 'units' && (
         <div>
-          <h3 style={{ marginBottom: '1rem' }}>⚔️ 兵種設計系統</h3>
-
-          {/* Design form */}
-          <div className="card" style={{ marginBottom: '1.5rem' }}>
-            <h4 style={{ marginBottom: '0.75rem' }}>設計新兵種</h4>
-            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
-              <select
-                value={unitDesignCategory}
-                onChange={(e) => setUnitDesignCategory(e.target.value)}
-                style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg)', color: 'var(--text)' }}
-              >
-                {CATEGORIES.map((c) => {
-                  const count = unitList.filter((u) => u.category === c).length;
-                  return <option key={c} value={c}>{CATEGORY_LABELS[c]}（{count}/5）</option>;
-                })}
-              </select>
-              <input
-                type="text"
-                placeholder="輸入提示詞，例如：擅長壕溝戰的精銳步兵，裝備毛瑟步槍和手榴彈"
-                value={unitDesignPrompt}
-                onChange={(e) => setUnitDesignPrompt(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !unitDesigning) handleDesignUnit(); }}
-                style={{ flex: 1, minWidth: '300px', padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg)', color: 'var(--text)' }}
-              />
-              <button
-                onClick={handleDesignUnit}
-                disabled={unitDesigning || !unitDesignPrompt.trim()}
-                className="btn-primary"
-                style={{ padding: '0.5rem 1.5rem', whiteSpace: 'nowrap' }}
-              >
-                {unitDesigning ? '⏳ AI 設計中...' : '🔨 設計兵種'}
-              </button>
-            </div>
-            {unitError && <p style={{ color: '#ef4444', fontSize: '0.85rem', marginTop: '0.5rem' }}>✗ {unitError}</p>}
-            {unitSuccess && <p style={{ color: '#22c55e', fontSize: '0.85rem', marginTop: '0.5rem' }}>{unitSuccess}</p>}
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '0.5rem' }}>
-              💡 提示詞會經過硬規則檢查，禁用技術（核武、飛彈、匿蹤等）會被自動攔截。API 請求排隊處理，一次最多 1 個併發請求。
-            </p>
-          </div>
+          <h3 style={{ marginBottom: '1rem' }}>⚔️ 兵種設計監控</h3>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+            兵種設計已改為由玩家在遊戲內自行設計。此頁僅供查看每位玩家設計了哪些兵種，並可設定套用於所有玩家的硬規則。
+          </p>
 
           {/* Hard Rules (configurable) */}
           {unitRules && (
@@ -1054,29 +990,38 @@ const Admin: React.FC = () => {
             </div>
           )}
 
-          {/* Existing units by category */}
-          {CATEGORIES.map((cat) => {
-            const units = unitList.filter((u) => u.category === cat);
-            return (
-              <div key={cat} style={{ marginBottom: '1rem' }}>
-                <h4 style={{ marginBottom: '0.5rem', color: 'var(--text-muted)', fontSize: '0.95rem' }}>
-                  {CATEGORY_LABELS[cat]}（{units.length}/5）
-                </h4>
-                {units.length === 0 ? (
-                  <div className="card" style={{ padding: '0.75rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                    尚未設計任何{CATEGORY_LABELS[cat]}兵種
-                  </div>
-                ) : (
+          {/* Units grouped by designer (player) — read-only record */}
+          <h4 style={{ marginBottom: '0.75rem' }}>📋 玩家設計紀錄（共 {unitList.length} 個兵種）</h4>
+          {unitList.length === 0 ? (
+            <div className="card" style={{ padding: '0.75rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              目前還沒有玩家設計任何兵種
+            </div>
+          ) : (
+            (() => {
+              // Group units by designer username (fallback to '未知玩家' for legacy admin-designed units)
+              const byPlayer: Record<string, any[]> = {};
+              for (const u of unitList) {
+                const key = u.designedByUsername || '未知玩家（舊資料）';
+                if (!byPlayer[key]) byPlayer[key] = [];
+                byPlayer[key].push(u);
+              }
+              return Object.entries(byPlayer).map(([username, units]) => (
+                <div key={username} style={{ marginBottom: '1.25rem' }}>
+                  <h4 style={{ marginBottom: '0.5rem', color: 'var(--accent-gold)', fontSize: '0.95rem' }}>
+                    👤 {username}（{units.length} 個兵種）
+                  </h4>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.75rem' }}>
                     {units.map((u) => (
                       <div key={u.id} className="card" style={{ padding: '0.75rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                           <div style={{ flex: 1 }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{CATEGORY_LABELS[u.category] || u.category}</span>
                             <p style={{ fontWeight: 700, fontSize: '1rem' }}>{u.nameZh}</p>
                             {u.nameEn && <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{u.nameEn}</p>}
                           </div>
                           <button
                             onClick={() => handleDeleteUnit(u.id)}
+                            title="管理員移除（審核用）"
                             style={{ padding: '0.15rem 0.4rem', color: '#ef4444', background: 'transparent', border: '1px solid #ef4444', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}
                           >
                             ✕
@@ -1095,10 +1040,10 @@ const Admin: React.FC = () => {
                       </div>
                     ))}
                   </div>
-                )}
-              </div>
-            );
-          })}
+                </div>
+              ));
+            })()
+          )}
         </div>
       )}
 

@@ -295,7 +295,7 @@ export default router;
 import { UnitDesignerService } from '../services/unit-designer.js';
 const playerUnitDesigner = new UnitDesignerService();
 
-// GET /api/games/my-units — list current player's custom units
+// GET /api/games/my-units — list current player's own custom units
 router.get('/my-units', authMiddleware, async (req: any, res) => {
   try {
     const game = await findCurrentGame();
@@ -304,8 +304,12 @@ router.get('/my-units', authMiddleware, async (req: any, res) => {
     const myPlayer = game.players.find((p) => p.userId === req.user.id);
     if (!myPlayer) return res.status(403).json({ error: '你尚未選擇國家' });
 
+    // Each player only sees/manages their own designed units (quota is per-player)
     const units = await prisma.customUnit.findMany({
-      where: { OR: [{ gameId: game.id }, { gameId: null }] },
+      where: {
+        OR: [{ gameId: game.id }, { gameId: null }],
+        designedByUserId: req.user.id,
+      },
       orderBy: { category: 'asc' },
     });
     res.json({ units, countryId: myPlayer.countryId });
@@ -326,7 +330,14 @@ router.post('/design-unit', authMiddleware, async (req: any, res) => {
     const myPlayer = game.players.find((p) => p.userId === req.user.id);
     if (!myPlayer) return res.status(403).json({ error: '你尚未選擇國家' });
 
-    const result = await playerUnitDesigner.designUnit({ prompt, category, gameId: game.id });
+    const result = await playerUnitDesigner.designUnit({
+      prompt,
+      category,
+      gameId: game.id,
+      userId: req.user.id,
+      username: req.user.username,
+      countryId: myPlayer.countryId,
+    });
 
     if (result.success) {
       res.json({ success: true, unit: result.unit });
@@ -339,9 +350,14 @@ router.post('/design-unit', authMiddleware, async (req: any, res) => {
   }
 });
 
-// DELETE /api/games/delete-unit/:id — player deletes their own unit
+// DELETE /api/games/delete-unit/:id — player can only delete their OWN unit
 router.delete('/delete-unit/:id', authMiddleware, async (req: any, res) => {
   try {
+    const unit = await prisma.customUnit.findUnique({ where: { id: req.params.id } });
+    if (!unit) return res.status(404).json({ error: '找不到該兵種' });
+    if (unit.designedByUserId !== req.user.id) {
+      return res.status(403).json({ error: '只能刪除自己設計的兵種' });
+    }
     await prisma.customUnit.delete({ where: { id: req.params.id } });
     res.json({ success: true });
   } catch (error: any) {

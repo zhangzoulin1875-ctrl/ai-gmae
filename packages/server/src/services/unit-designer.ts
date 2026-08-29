@@ -41,12 +41,15 @@ export class UnitDesignerService {
     prompt: string;
     category: string;
     gameId?: string;
+    userId: string;
+    username: string;
+    countryId?: string;
   }): Promise<{
     success: boolean;
     unit?: any;
     error?: string;
   }> {
-    const { prompt, category, gameId } = params;
+    const { prompt, category, gameId, userId, username, countryId } = params;
 
     if (!CATEGORIES.includes(category as Category)) {
       return { success: false, error: `無效的兵種類別，允許: ${CATEGORIES.join(', ')}` };
@@ -59,12 +62,13 @@ export class UnitDesignerService {
     }
     const r = { ...DEFAULT_RULES, ...rules } as any;
 
-    // Check category count limit
+    // Check category count limit — PER PLAYER, not global
+    // (each player designs their own roster; one player's units don't block another's)
     const existingCount = await prisma.customUnit.count({
-      where: { category, gameId: gameId || null },
+      where: { category, gameId: gameId || null, designedByUserId: userId },
     });
     if (existingCount >= r.maxPerCategory) {
-      return { success: false, error: `${CATEGORY_ZH[category]}已達上限（${r.maxPerCategory} 種）` };
+      return { success: false, error: `你的${CATEGORY_ZH[category]}已達上限（${r.maxPerCategory} 種）` };
     }
 
     // Validate prompt against forbidden technologies
@@ -166,7 +170,7 @@ Respond ONLY with valid JSON:
         }
       }
 
-      // Save to DB
+      // Save to DB — with designer attribution
       const saved = await prisma.customUnit.create({
         data: {
           gameId: gameId || null,
@@ -183,6 +187,9 @@ Respond ONLY with valid JSON:
           costIndustry: unit.costIndustry,
           prompt,
           isApproved: true,
+          designedByUserId: userId,
+          designedByUsername: username,
+          designedByCountryId: countryId || null,
         },
       });
 

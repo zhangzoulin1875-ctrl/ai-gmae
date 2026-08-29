@@ -142,6 +142,10 @@ model CustomUnit {
   prompt        String?
   isApproved    Boolean  @default(true)
   createdAt     DateTime @default(now())
+  // Designer attribution — every unit is now designed by a player, not the admin
+  designedByUserId    String?
+  designedByUsername  String?
+  designedByCountryId String?
 
   @@map("custom_units")
 }
