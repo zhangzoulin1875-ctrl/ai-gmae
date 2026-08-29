@@ -8,7 +8,7 @@ import {
 import type { CountryDefinition } from '@wwi/shared';
 
 // Local TopoJSON: 3240 provinces with 1914-era country mapping
-const PROVINCES_TOPO = '/maps/provinces-1914.topojson';
+const PROVINCES_TOPO = '/maps/provinces-1914.geojson';
 
 const OCEAN_TOP = '#0f3352';
 const OCEAN_MID = '#0a2340';
