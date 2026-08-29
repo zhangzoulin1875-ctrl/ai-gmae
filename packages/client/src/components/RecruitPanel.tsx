@@ -181,7 +181,7 @@ const RecruitPanel: React.FC<RecruitPanelProps> = ({ militaryState, onRefresh })
               value={quantity}
               onChange={(e) => setQuantity(Math.max(1, Number(e.target.value)))}
               min={1}
-              step={100}
+              step={1}
               style={{ maxWidth: '200px' }}
             />
             <div style={{ display: 'flex', gap: '0.4rem' }}>
