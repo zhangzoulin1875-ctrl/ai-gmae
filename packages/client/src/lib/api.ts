@@ -9,7 +9,7 @@ export function getApiUrl(path: string): string {
   return `${API_BASE}${path}`;
 }
 
-export function getSocketUrl(): string {
+export function getSocketUrl(): string | undefined {
   return SOCKET_BASE || undefined;
 }
 
