@@ -1,7 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { AIEngine } from './ai-engine.js';
 import { RuleBasedAI } from './rule-based-ai.js';
-import { WWI_COUNTRIES } from '@wwi/shared';
+import { WWI_COUNTRIES, recruitCost } from '@wwi/shared';
 import type { AIProvider } from '@wwi/shared';
 
 const MAX_LLM_CALLS_PER_TURN = parseInt(process.env.MAX_LLM_CALLS_PER_TURN || '2', 10);
@@ -136,7 +136,9 @@ export class AIPlayerService {
           });
 
           const infantryUnit = systemUnits.find((u) => u.category === 'infantry');
-          if (infantryUnit && cs.gold >= infantryUnit.costGold * 100 && cs.manpower >= infantryUnit.costManpower * 100) {
+          if (infantryUnit) {
+            const cost100 = recruitCost(infantryUnit, 100);
+            if (cs.gold >= cost100.gold && cs.manpower >= cost100.manpower) {
             await prisma.order.create({
               data: {
                 gameId,
@@ -150,6 +152,7 @@ export class AIPlayerService {
               },
             });
             console.log(`[AIPlayer] ${cs.countryId} recruiting infantry (no stock)`);
+            }
           }
         }
       }
@@ -177,15 +180,19 @@ export class AIPlayerService {
         where: { isSystemDefault: true },
       });
       const infantryUnit = systemUnits.find((u) => u.category === 'infantry');
-      if (infantryUnit && cs.gold >= infantryUnit.costGold * 50) {
+      if (infantryUnit) {
+        const recruitQty = Math.min(5000, Math.max(1000, Math.floor(cs.manpower * 0.1)));
+        const cost = recruitCost(infantryUnit, recruitQty);
+        if (cs.gold >= cost.gold && cs.manpower >= cost.manpower) {
         return [{
           type: 'RECRUIT',
-          recruitComposition: { [infantryUnit.id]: 50 },
+          recruitComposition: { [infantryUnit.id]: recruitQty },
           targetTerritoryId: null,
           fromTerritoryId: cs.territories[0] || cs.countryId,
           divisionIds: [],
           details: 'AI 招募步兵',
         }];
+        }
       }
       return [];
     }
@@ -202,7 +209,7 @@ export class AIPlayerService {
           type: 'ATTACK',
           targetTerritoryId: base.targetTerritoryId,
           fromTerritoryId: cs.territories[0] || cs.countryId,
-          divisionIds: [divisions[0].id],
+          divisionIds: divisions.slice(0, Math.max(1, Math.ceil(divisions.length * 0.6))).map(d => d.id),
           details: base.details || 'AI 進攻指令',
         });
       } else if (base.type === 'RECRUIT') {
@@ -210,15 +217,19 @@ export class AIPlayerService {
           where: { isSystemDefault: true },
         });
         const infantryUnit = systemUnits.find((u) => u.category === 'infantry');
-        if (infantryUnit && cs.gold >= infantryUnit.costGold * 50) {
+        if (infantryUnit) {
+          const recruitQty = Math.min(base.infantry || 5000, 100000);
+          const cost = recruitCost(infantryUnit, recruitQty);
+          if (cs.gold >= cost.gold && cs.manpower >= cost.manpower) {
           orders.push({
             type: 'RECRUIT',
-            recruitComposition: { [infantryUnit.id]: 50 },
+            recruitComposition: { [infantryUnit.id]: recruitQty },
             targetTerritoryId: null,
             fromTerritoryId: cs.territories[0] || cs.countryId,
             divisionIds: [],
             details: 'AI 招募指令',
           });
+          }
         }
       } else if (base.type === 'DEFEND') {
         orders.push({

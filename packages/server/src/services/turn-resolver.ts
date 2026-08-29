@@ -201,6 +201,14 @@ export class TurnResolver {
       battles = [];
       const events: string[] = [];
 
+      // Track DEFEND/FORTIFY orders for combat bonuses
+      const defendCountries = new Set<string>();
+      const fortifyCountries = new Set<string>();
+      for (const o of orders) {
+        if (o.type === 'DEFEND') defendCountries.add(o.countryId);
+        if (o.type === 'FORTIFY') fortifyCountries.add(o.countryId);
+      }
+
       for (const order of orders) {
         const orderState = stateMap.get(order.countryId);
         if (!orderState) continue;
@@ -228,6 +236,8 @@ export class TurnResolver {
             }
           }
           attackerForce += orderState.morale * 10;
+          // DEFEND posture reduces offensive capability
+          if (defendCountries.has(order.countryId)) attackerForce *= 0.85;
 
           if (!defenderId) {
             battles.push({
@@ -255,6 +265,9 @@ export class TurnResolver {
             }
           }
           defenderForce += defenderState.morale * 100 + defenderState.stability * 50;
+          // DEFEND order: +30% defender force; FORTIFY: +20% (stacks)
+          if (defendCountries.has(defenderId)) defenderForce *= 1.3;
+          if (fortifyCountries.has(defenderId)) defenderForce *= 1.2;
 
           const attackerWins = attackerForce > defenderForce * 0.6;
           const lossRatio = attackerWins ? 0.15 : 0.4;
@@ -311,9 +324,12 @@ export class TurnResolver {
           orderState.gold = Math.max(0, orderState.gold - 20);
           events.push(`${COUNTRY_NAMES[order.countryId] || order.countryId} 修築防禦工事`);
         } else if (order.type === 'MOVE') {
-          events.push(`${COUNTRY_NAMES[order.countryId] || order.countryId} 調動部隊`);
+          orderState.gold = Math.max(0, orderState.gold - 5);
+          orderState.morale = Math.min(100, orderState.morale + 1);
+          events.push(`${COUNTRY_NAMES[order.countryId] || order.countryId} 調動部隊至前線陣地`);
         } else if (order.type === 'DIPLOMACY') {
-          events.push(`${COUNTRY_NAMES[order.countryId] || order.countryId} 發起外交行動`);
+          orderState.stability = Math.min(100, orderState.stability + 2);
+          events.push(`${COUNTRY_NAMES[order.countryId] || order.countryId} 發起外交行動，穩定度提升`);
         }
       }
 
@@ -340,8 +356,8 @@ export class TurnResolver {
     // decreases it. This composes with AI policy deltas applied above.
     for (const cs of stateMap.values()) {
       const { areaKm2, population } = getTerritoryStats(cs.territories);
-      // Gold: tax base from population + land value from area
-      cs.gold += Math.round(cs.industry * 5 + (areaKm2 / 50_000));
+      // Gold: industry output + population tax base + minor land value
+      cs.gold += Math.round(cs.industry * 5 + population / 500_000 + areaKm2 / 500_000);
       // Manpower: population-driven natural growth + small base
       cs.manpower += Math.round(population * 0.0005) + Math.floor(cs.manpower * 0.02) + 1000;
       // Morale: slow passive recovery

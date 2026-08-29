@@ -55,11 +55,13 @@ interface AIDecision {
 const DIFFICULTY_MULT = 1.0;
 
 export class RuleBasedAI {
+  private allStatesRef: CountryState[] = [];
   generateOrders(
     myState: CountryState,
     allStates: CountryState[],
     turn: number
   ): AIDecision[] {
+    this.allStatesRef = allStates;
     const assessment = this.assess(myState, allStates);
     const mode = this.selectMode(assessment);
     const orders = this.planOrders(mode, assessment, turn);
@@ -137,14 +139,23 @@ export class RuleBasedAI {
   }
 
   private calculatePower(cs: CountryState): number {
+    // Actual military power is in divisions (not tracked here), so use
+    // gold + manpower + industry as proxy for deployable force
     return (
-      cs.infantry * 1.0 +
-      cs.artillery * 5.0 +
-      cs.cavalry * 2.5 +
+      cs.gold * 10 +
+      cs.manpower * 0.01 +
+      cs.industry * 100 +
       cs.morale * 500 +
       cs.stability * 200 +
-      cs.industry * 50
+      (cs.territories as string[]).length * 50
     ) * DIFFICULTY_MULT;
+  }
+
+  private pickEnemyProvince(enemyCountryId: string): string | null {
+    const enemyState = this.allStatesRef.find(s => s.countryId === enemyCountryId);
+    if (!enemyState || !enemyState.territories || (enemyState.territories as string[]).length === 0) return null;
+    const territories = enemyState.territories as string[];
+    return territories[Math.floor(Math.random() * territories.length)];
   }
 
   private isEnemy(mySide: string, otherSide: string): boolean {
@@ -159,7 +170,7 @@ export class RuleBasedAI {
   private selectMode(a: CountryAssessment): StrategyMode {
     if (a.forceRatio < 0.25 && a.morale < 35) return 'DESPERATE';
     if (a.threat > 65 || (a.forceRatio < 0.6 && a.morale < 50)) return 'DEFEND';
-    if (a.gold < 30 || a.manpower < 50000 || a.infantry < 80000) return 'ECONOMY';
+    if (a.gold < 30 || a.manpower < 50000 || a.power < 5000) return 'ECONOMY';
     if (a.forceRatio > 1.2 && a.opportunity > 50 && a.morale >= 60) return 'ATTACK';
     if (a.opportunity > 70 && a.forceRatio > 0.8) return 'EXPAND';
     return 'CONSOLIDATE';
@@ -181,12 +192,14 @@ export class RuleBasedAI {
   private planAttack(a: CountryAssessment, _turn: number): AIDecision[] {
     const orders: AIDecision[] = [];
     if (!a.weakestEnemy) return orders;
+    const targetProvince = this.pickEnemyProvince(a.weakestEnemy);
+    if (!targetProvince) return orders;
     const allyBonus = Math.min(0.15, a.allyStates.length * 0.05);
     const commitRatio = 0.55 + allyBonus + Math.random() * 0.1;
     const commitInf = Math.floor(a.infantry * commitRatio);
     orders.push({
       type: 'ATTACK', fromTerritoryId: a.territories[0] || a.countryId,
-      targetTerritoryId: a.weakestEnemy,
+      targetTerritoryId: targetProvince,
       infantry: commitInf, artillery: Math.floor(a.artillery * 0.6), cavalry: Math.floor(a.cavalry * 0.4),
       details: `集中主力打擊 ${this.cn(a.weakestEnemy)}（投入 ${commitInf.toLocaleString()} 步兵）`,
     });
@@ -202,7 +215,7 @@ export class RuleBasedAI {
     const home = a.territories[0] || a.countryId;
     orders.push({ type: 'DEFEND', fromTerritoryId: home, targetTerritoryId: null, infantry: a.infantry, artillery: a.artillery, cavalry: a.cavalry, details: `全線轉入防禦：${a.infantry.toLocaleString()} 步兵駐守 ${this.cn(a.countryId)}` });
     if (a.gold >= 30) orders.push({ type: 'FORTIFY', fromTerritoryId: home, targetTerritoryId: null, infantry: null, artillery: null, cavalry: null, details: '加固前線防禦工事' });
-    if (a.infantry < 100000 && a.gold >= 40 && a.manpower >= 20000) {
+    if (a.power < 5000 && a.gold >= 40 && a.manpower >= 20000) {
       orders.push({ type: 'RECRUIT', fromTerritoryId: home, targetTerritoryId: null, infantry: Math.min(30000, Math.floor(a.manpower * 0.2)), artillery: null, cavalry: null, details: '緊急補充兵力以維持防線' });
     }
     return orders;
@@ -222,9 +235,12 @@ export class RuleBasedAI {
   private planExpand(a: CountryAssessment, _turn: number): AIDecision[] {
     const orders: AIDecision[] = [];
     const home = a.territories[0] || a.countryId;
-    if (a.weakestEnemy && a.infantry > 50000) {
-      const ci = Math.floor(a.infantry * (0.35 + Math.random() * 0.15));
-      orders.push({ type: 'ATTACK', fromTerritoryId: home, targetTerritoryId: a.weakestEnemy, infantry: ci, artillery: Math.floor(a.artillery * 0.4), cavalry: Math.floor(a.cavalry * 0.3), details: `擴張進攻：打擊弱鄰 ${this.cn(a.weakestEnemy)}` });
+    if (a.weakestEnemy && a.power > 8000) {
+      const targetProvince = this.pickEnemyProvince(a.weakestEnemy);
+      if (targetProvince) {
+        const ci = Math.floor(a.infantry * (0.35 + Math.random() * 0.15));
+        orders.push({ type: 'ATTACK', fromTerritoryId: home, targetTerritoryId: targetProvince, infantry: ci, artillery: Math.floor(a.artillery * 0.4), cavalry: Math.floor(a.cavalry * 0.3), details: `擴張進攻：打擊弱鄰 ${this.cn(a.weakestEnemy)}` });
+      }
     }
     if (a.gold >= 40 && a.manpower >= 20000) {
       const r = Math.min(40000, Math.floor(a.manpower * 0.15));
@@ -240,7 +256,10 @@ export class RuleBasedAI {
     if (a.morale < 25) {
       orders.push({ type: 'DEFEND', fromTerritoryId: home, targetTerritoryId: null, infantry: a.infantry, artillery: a.artillery, cavalry: a.cavalry, details: '絕望防守：動員一切力量死守國土' });
     } else if (a.weakestEnemy) {
-      orders.push({ type: 'ATTACK', fromTerritoryId: home, targetTerritoryId: a.weakestEnemy, infantry: Math.floor(a.infantry * 0.85), artillery: a.artillery, cavalry: a.cavalry, details: `孤注一擲：全力進攻 ${this.cn(a.weakestEnemy)}` });
+      const targetProvince = this.pickEnemyProvince(a.weakestEnemy);
+      if (targetProvince) {
+        orders.push({ type: 'ATTACK', fromTerritoryId: home, targetTerritoryId: targetProvince, infantry: Math.floor(a.infantry * 0.85), artillery: a.artillery, cavalry: a.cavalry, details: `孤注一擲：全力進攻 ${this.cn(a.weakestEnemy)}` });
+      }
     }
     if (a.manpower >= 10000) {
       orders.push({ type: 'RECRUIT', fromTerritoryId: home, targetTerritoryId: null, infantry: Math.min(a.manpower, 50000), artillery: null, cavalry: null, details: '最後動員：徵召所有可用人力' });

@@ -1,5 +1,5 @@
 import { WWI_COUNTRIES } from '@wwi/shared';
-import { getTerritoryStats } from '../lib/territory-stats.js';
+import { getTerritoryStats, getProvincesForCountry } from '../lib/territory-stats.js';
 import { prisma } from '../lib/prisma.js';
 import { ensureSystemUnits } from './military-init.js';
 
@@ -101,7 +101,7 @@ export async function initializeGameCountries(gameId: string): Promise<void> {
       industry: resources.industry,
       manpower: resources.manpower,
       stability: resources.stability,
-      territories: [c.id],
+      territories: getProvincesForCountry(c.id),
       isAIControlled: false,
       playerId: null,
     };
