@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
-import { Map as MapLibreMap, type MapLayerMouseEvent } from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
 import type { CountryDefinition } from '@wwi/shared';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 const GEOJSON_URL = '/maps/provinces-1914.geojson';
 
@@ -11,6 +11,13 @@ const BORDER_COLOR = '#0c1016';
 const HOVER_BORDER_COLOR = '#e8d8b8';
 const SELECTED_BORDER_COLOR = '#ffd166';
 
+// MapLibre is loaded via CDN in index.html (window.maplibregl)
+declare global {
+  interface Window {
+    maplibregl: any;
+  }
+}
+
 interface WorldMapProps {
   countries: CountryDefinition[];
   selectedCountryId?: string | null;
@@ -19,19 +26,18 @@ interface WorldMapProps {
 
 const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSelectCountry }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<MapLibreMap | null>(null);
+  const mapRef = useRef<any>(null);
   const hoveredIdRef = useRef<string | number | null>(null);
   const countriesRef = useRef(countries);
   const onSelectRef = useRef(onSelectCountry);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string; color: string } | null>(null);
-  const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
+  const [mapReady, setMapReady] = useState(false);
 
   countriesRef.current = countries;
   onSelectRef.current = onSelectCountry;
 
   // Build MapLibre "match" expression: wwi country id -> hex color
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const colorExpression = useMemo((): any => {
     const expr = ['match', ['get', 'wwi']];
     for (const c of countries) {
@@ -45,8 +51,14 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Guard: bail out cleanly with a fallback UI instead of crashing the
-    // whole app if WebGL isn't available in this browser.
+    // Wait for CDN script to load
+    const ml = (window as any).maplibregl;
+    if (!ml) {
+      setMapError('MapLibre GL 腳本載入中，請稍候再試。');
+      return;
+    }
+
+    // Check WebGL support
     try {
       const testCanvas = document.createElement('canvas');
       const gl = testCanvas.getContext('webgl2') || testCanvas.getContext('webgl');
@@ -59,176 +71,190 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
       return;
     }
 
-    let map: MapLibreMap;
+    let map: any;
+
     try {
-      map = new MapLibreMap({
-      container: containerRef.current,
-      style: {
-        version: 8,
-        sources: {},
-        layers: [
-          {
-            id: 'background',
-            type: 'background',
-            paint: { 'background-color': OCEAN_COLOR },
-          },
+      map = new ml.Map({
+        container: containerRef.current,
+        style: {
+          version: 8,
+          sources: {},
+          layers: [
+            {
+              id: 'background',
+              type: 'background',
+              paint: { 'background-color': OCEAN_COLOR },
+            },
+          ],
+        },
+        center: [10, 25],
+        zoom: 1.2,
+        maxBounds: [
+          [-180, -75],
+          [180, 85],
         ],
-      } as any,
-      center: [10, 25],
-      zoom: 1.2,
-      maxBounds: [
-        [-180, -75],
-        [180, 85],
-      ],
-      attributionControl: false,
-      dragRotate: false,
-      pitchWithRotate: false,
-      keyboard: false,
-    });
-
-    map.on('load', () => {
-      // GeoJSON source — promoteId lets us use feature-state for hover
-      map.addSource('provinces', {
-        type: 'geojson',
-        data: GEOJSON_URL,
-        promoteId: 'id',
+        attributionControl: false,
+        dragRotate: false,
+        pitchWithRotate: false,
+        keyboard: false,
       });
-
-      // 1) Province fills — colored by wwi, brightens on hover via feature-state
-      map.addLayer({
-        id: 'province-fill',
-        type: 'fill',
-        source: 'provinces',
-        paint: {
-          'fill-color': colorExpression,
-          'fill-opacity': [
-            'case',
-            ['boolean', ['feature-state', 'hover'], false],
-            1.0,
-            0.78,
-          ],
-        },
-      });
-
-      // 2) Province borders — subtle dark lines
-      map.addLayer({
-        id: 'province-borders',
-        type: 'line',
-        source: 'provinces',
-        paint: {
-          'line-color': BORDER_COLOR,
-          'line-width': 0.3,
-          'line-opacity': 0.5,
-        },
-      });
-
-      // 3) Hover border — only visible on the hovered province (GPU-side feature-state)
-      map.addLayer({
-        id: 'hover-border',
-        type: 'line',
-        source: 'provinces',
-        paint: {
-          'line-color': HOVER_BORDER_COLOR,
-          'line-width': 1.5,
-          'line-opacity': [
-            'case',
-            ['boolean', ['feature-state', 'hover'], false],
-            1.0,
-            0.0,
-          ],
-        },
-      });
-
-      // 4) Selected country border — gold outline, filtered by wwi
-      map.addLayer({
-        id: 'selected-border',
-        type: 'line',
-        source: 'provinces',
-        paint: {
-          'line-color': SELECTED_BORDER_COLOR,
-          'line-width': 2,
-          'line-opacity': 0.9,
-        },
-        filter: ['==', ['get', 'wwi'], '__none__'],
-      });
-
-      setMapReady(true);
-    });
-
-    // ── Hover ──────────────────────────────────────────────────
-    map.on('mousemove', 'province-fill', (e: MapLayerMouseEvent) => {
-      const features = e.features;
-      if (!features || features.length === 0) return;
-      const feat = features[0];
-      const newId = feat.id;
-
-      // Clear previous hover state
-      if (hoveredIdRef.current !== null && hoveredIdRef.current !== newId) {
-        map.setFeatureState(
-          { source: 'provinces', id: hoveredIdRef.current },
-          { hover: false }
-        );
-      }
-
-      // Set new hover state
-      if (newId !== null && newId !== undefined) {
-        map.setFeatureState(
-          { source: 'provinces', id: newId },
-          { hover: true }
-        );
-        hoveredIdRef.current = newId;
-      }
-
-      // Tooltip + cursor
-      const wwi = feat.properties?.wwi;
-      const country = wwi ? countriesRef.current.find((c) => c.id === wwi) : null;
-      if (country) {
-        const provName = feat.properties?.nameZh || feat.properties?.name || '';
-        setTooltip({
-          x: e.point.x,
-          y: e.point.y,
-          text: `${country.flagIcon} ${country.nameZh} · ${provName}`,
-          color: country.color,
-        });
-        map.getCanvas().style.cursor = 'pointer';
-      } else {
-        setTooltip(null);
-        map.getCanvas().style.cursor = 'default';
-      }
-    });
-
-    map.on('mouseleave', 'province-fill', () => {
-      if (hoveredIdRef.current !== null) {
-        map.setFeatureState(
-          { source: 'provinces', id: hoveredIdRef.current },
-          { hover: false }
-        );
-        hoveredIdRef.current = null;
-      }
-      setTooltip(null);
-      map.getCanvas().style.cursor = '';
-    });
-
-    // ── Click ──────────────────────────────────────────────────
-    map.on('click', 'province-fill', (e: MapLayerMouseEvent) => {
-      const features = e.features;
-      if (!features || features.length === 0) return;
-      const wwi = features[0].properties?.wwi;
-      const country = wwi ? countriesRef.current.find((c) => c.id === wwi) : null;
-      if (country) onSelectRef.current?.(country);
-    });
-
-      mapRef.current = map;
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('[WorldMap] MapLibre init failed:', err);
-      const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-      setMapError(msg);
+      console.error('[WorldMap] MapLibre constructor failed:', err);
+      const e = err as Error;
+      setMapError(`${e.name}: ${e.message}\n\n${e.stack || '(no stack)'}`);
       return;
     }
 
+    // Capture error events from MapLibre itself
+    map.on('error', (e: any) => {
+      console.error('[WorldMap] MapLibre error event:', e);
+      const detail = e?.error?.message || e?.message || JSON.stringify(e);
+      setMapError(`MapLibre error: ${detail}`);
+    });
+
+    map.on('load', () => {
+      try {
+        // GeoJSON source — promoteId lets us use feature-state for hover
+        map.addSource('provinces', {
+          type: 'geojson',
+          data: GEOJSON_URL,
+          promoteId: 'id',
+        });
+
+        // 1) Province fills — colored by wwi, brightens on hover via feature-state
+        map.addLayer({
+          id: 'province-fill',
+          type: 'fill',
+          source: 'provinces',
+          paint: {
+            'fill-color': colorExpression,
+            'fill-opacity': [
+              'case',
+              ['boolean', ['feature-state', 'hover'], false],
+              1.0,
+              0.78,
+            ],
+          },
+        });
+
+        // 2) Province borders — subtle dark lines
+        map.addLayer({
+          id: 'province-borders',
+          type: 'line',
+          source: 'provinces',
+          paint: {
+            'line-color': BORDER_COLOR,
+            'line-width': 0.3,
+            'line-opacity': 0.5,
+          },
+        });
+
+        // 3) Hover border — only visible on the hovered province
+        map.addLayer({
+          id: 'hover-border',
+          type: 'line',
+          source: 'provinces',
+          paint: {
+            'line-color': HOVER_BORDER_COLOR,
+            'line-width': 1.5,
+            'line-opacity': [
+              'case',
+              ['boolean', ['feature-state', 'hover'], false],
+              1.0,
+              0.0,
+            ],
+          },
+        });
+
+        // 4) Selected country border — gold outline, filtered by wwi
+        map.addLayer({
+          id: 'selected-border',
+          type: 'line',
+          source: 'provinces',
+          paint: {
+            'line-color': SELECTED_BORDER_COLOR,
+            'line-width': 2,
+            'line-opacity': 0.9,
+          },
+          filter: ['==', ['get', 'wwi'], '__none__'],
+        });
+
+        // ── Hover (registered after layers exist) ────────────────
+        map.on('mousemove', 'province-fill', (e: any) => {
+          const features = e.features;
+          if (!features || features.length === 0) return;
+          const feat = features[0];
+          const newId = feat.id;
+
+          if (hoveredIdRef.current !== null && hoveredIdRef.current !== newId) {
+            map.setFeatureState(
+              { source: 'provinces', id: hoveredIdRef.current },
+              { hover: false }
+            );
+          }
+
+          if (newId !== null && newId !== undefined) {
+            map.setFeatureState(
+              { source: 'provinces', id: newId },
+              { hover: true }
+            );
+            hoveredIdRef.current = newId;
+          }
+
+          const wwi = feat.properties?.wwi;
+          const country = wwi ? countriesRef.current.find((c) => c.id === wwi) : null;
+          if (country) {
+            const provName = feat.properties?.nameZh || feat.properties?.name || '';
+            setTooltip({
+              x: e.point.x,
+              y: e.point.y,
+              text: `${country.flagIcon} ${country.nameZh} · ${provName}`,
+              color: country.color,
+            });
+            map.getCanvas().style.cursor = 'pointer';
+          } else {
+            setTooltip(null);
+            map.getCanvas().style.cursor = 'default';
+          }
+        });
+
+        map.on('mouseleave', 'province-fill', () => {
+          if (hoveredIdRef.current !== null) {
+            map.setFeatureState(
+              { source: 'provinces', id: hoveredIdRef.current },
+              { hover: false }
+            );
+            hoveredIdRef.current = null;
+          }
+          setTooltip(null);
+          map.getCanvas().style.cursor = '';
+        });
+
+        // ── Click ──────────────────────────────────────────────
+        map.on('click', 'province-fill', (e: any) => {
+          const features = e.features;
+          if (!features || features.length === 0) return;
+          const wwi = features[0].properties?.wwi;
+          const country = wwi ? countriesRef.current.find((c) => c.id === wwi) : null;
+          if (country) onSelectRef.current?.(country);
+        });
+
+        setMapReady(true);
+      } catch (err) {
+        console.error('[WorldMap] Layer setup failed:', err);
+        const e = err as Error;
+        setMapError(`Layer setup: ${e.message}\n\n${e.stack || '(no stack)'}`);
+      }
+    });
+
+    mapRef.current = map;
+
     return () => {
-      map.remove();
+      try {
+        map.remove();
+      } catch {
+        // ignore
+      }
       mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -249,7 +275,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
       '==',
       ['get', 'wwi'],
       selectedCountryId || '__none__',
-    ] as any);
+    ]);
   }, [selectedCountryId, mapReady]);
 
   const selectedCountry = selectedCountryId
@@ -279,14 +305,19 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
             alignItems: 'center',
             justifyContent: 'center',
             gap: '0.5rem',
-            background: 'rgba(10,14,20,0.9)',
+            background: 'rgba(10,14,20,0.95)',
             color: 'var(--text-muted)',
             textAlign: 'center',
-            padding: '1rem',
+            padding: '1.5rem',
+            fontSize: '0.85rem',
+            whiteSpace: 'pre-wrap',
+            overflow: 'auto',
           }}
         >
-          <p>⚠️ 地圖無法載入</p>
-          <p style={{ fontSize: '0.8rem' }}>{mapError}</p>
+          <p style={{ color: '#ef4444', fontWeight: 600 }}>⚠️ 地圖無法載入</p>
+          <pre style={{ fontSize: '0.75rem', textAlign: 'left', maxWidth: '100%', overflow: 'auto' }}>
+            {mapError}
+          </pre>
         </div>
       )}
 
@@ -301,7 +332,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
       />
 
       {/* Selected country badge */}
-      {selectedCountry && (
+      {selectedCountry && !mapError && (
         <div
           style={{
             position: 'absolute',
@@ -320,7 +351,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
       )}
 
       {/* Tooltip */}
-      {tooltip && (
+      {tooltip && !mapError && (
         <div
           style={{
             position: 'absolute',
@@ -342,21 +373,23 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
       )}
 
       {/* Hint */}
-      <div
-        style={{
-          position: 'absolute',
-          bottom: '0.5rem',
-          right: '0.5rem',
-          fontSize: '0.75rem',
-          color: 'rgba(255,255,255,0.6)',
-          background: 'rgba(0,0,0,0.4)',
-          padding: '0.25rem 0.5rem',
-          borderRadius: '4px',
-          pointerEvents: 'none',
-        }}
-      >
-        拖曳平移 · 滾輪縮放 · 點擊省份選擇國家
-      </div>
+      {!mapError && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: '0.5rem',
+            right: '0.5rem',
+            fontSize: '0.75rem',
+            color: 'rgba(255,255,255,0.6)',
+            background: 'rgba(0,0,0,0.4)',
+            padding: '0.25rem 0.5rem',
+            borderRadius: '4px',
+            pointerEvents: 'none',
+          }}
+        >
+          拖曳平移 · 滾輪縮放 · 點擊省份選擇國家
+        </div>
+      )}
     </div>
   );
 };
