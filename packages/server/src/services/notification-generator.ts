@@ -1,9 +1,11 @@
 import { prisma } from '../lib/prisma.js';
-import { WWI_COUNTRIES } from '@wwi/shared';
+import { WWI_COUNTRIES, getScenario } from '@wwi/shared';
 
-const COUNTRY_NAMES: Record<string, string> = Object.fromEntries(
-  WWI_COUNTRIES.map((c) => [c.id, c.nameZh])
-);
+function buildCountryNames(scenarioId: string): Record<string, string> {
+  const scenario = getScenario(scenarioId);
+  const countries = scenario?.countries || WWI_COUNTRIES;
+  return Object.fromEntries(countries.map((c) => [c.id, c.nameZh]));
+}
 
 export async function generateNotificationsForTurn(
   gameId: string,
@@ -16,10 +18,14 @@ export async function generateNotificationsForTurn(
 
   if (players.length === 0) return;
 
+  const game = await prisma.gameRoom.findUnique({ where: { id: gameId } });
+  const scenarioId = game?.scenarioId || 'wwi-global';
+  const countryNames = buildCountryNames(scenarioId);
+
   for (const player of players) {
     try {
       const countryId = player.countryId;
-      const countryName = COUNTRY_NAMES[countryId] || countryId;
+      const countryName = countryNames[countryId] || countryId;
 
       // 1. Battle Notifications
       const myBattles = battles.filter(

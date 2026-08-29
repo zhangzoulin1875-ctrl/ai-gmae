@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma.js';
-import { WWI_COUNTRIES, recruitCost, TechEffects, aggregateTechEffects } from '@wwi/shared';
+import { WWI_COUNTRIES, getScenario, recruitCost, TechEffects, aggregateTechEffects } from '@wwi/shared';
 import { getTerritoryStats } from '../lib/territory-stats.js';
 import type { AIProvider } from '@wwi/shared';
 import { AIEngine } from './ai-engine.js';
@@ -19,9 +19,11 @@ interface Battle {
   narrative: string;
 }
 
-const COUNTRY_NAMES: Record<string, string> = Object.fromEntries(
-  WWI_COUNTRIES.map((c) => [c.id, c.nameZh])
-);
+function buildCountryNames(scenarioId: string): Record<string, string> {
+  const scenario = getScenario(scenarioId);
+  const countries = scenario?.countries || WWI_COUNTRIES;
+  return Object.fromEntries(countries.map((c) => [c.id, c.nameZh]));
+}
 
 function techFx(cs: any): TechEffects {
   return (cs.techEffects || {}) as TechEffects;
@@ -139,7 +141,8 @@ export class TurnResolver {
 
         const worldStateRecord: Record<string, any> = {};
         for (const [cid, cs] of stateMap) {
-          const countryDef = WWI_COUNTRIES.find((c) => c.id === cid);
+          const scenario = getScenario(game.scenarioId || 'wwi-global');
+          const countryDef = (scenario?.countries || []).find((c) => c.id === cid) || WWI_COUNTRIES.find((c) => c.id === cid);
           const countryDivs = allDivisions.filter((d) => d.countryId === cid);
           worldStateRecord[cid] = {
             countryId: cid,
@@ -244,7 +247,7 @@ export class TurnResolver {
           const attackerDivs = allDivisions.filter((d) => attackerDivIds.includes(d.id));
 
           if (attackerDivs.length === 0) {
-            events.push(`${COUNTRY_NAMES[order.countryId] || order.countryId} 的進攻指令無可用師團`);
+            events.push(`${buildCountryNames(game.scenarioId || 'wwi-global')[order.countryId] || order.countryId} 的進攻指令無可用師團`);
             continue;
           }
 
@@ -271,10 +274,10 @@ export class TurnResolver {
               winnerCountryId: order.countryId,
               attackerCasualties: {}, defenderCasualties: {},
               territoryCaptured: true,
-              narrative: `${COUNTRY_NAMES[order.countryId] || order.countryId} 軍隊未遇抵抗，佔領 ${order.targetTerritoryId}。`,
+              narrative: `${buildCountryNames(game.scenarioId || 'wwi-global')[order.countryId] || order.countryId} 軍隊未遇抵抗，佔領 ${order.targetTerritoryId}。`,
             });
             if (!orderState.territories.includes(order.targetTerritoryId)) orderState.territories.push(order.targetTerritoryId);
-            events.push(`${COUNTRY_NAMES[order.countryId] || order.countryId} 佔領 ${order.targetTerritoryId}`);
+            events.push(`${buildCountryNames(game.scenarioId || 'wwi-global')[order.countryId] || order.countryId} 佔領 ${order.targetTerritoryId}`);
             continue;
           }
 
@@ -333,8 +336,8 @@ export class TurnResolver {
             attackerCasualties, defenderCasualties,
             territoryCaptured: attackerWins,
             narrative: attackerWins
-              ? `${COUNTRY_NAMES[order.countryId] || order.countryId} 軍突破 ${COUNTRY_NAMES[defenderId] || defenderId} 的防線，攻佔 ${order.targetTerritoryId}。`
-              : `${COUNTRY_NAMES[defenderId] || defenderId} 成功守住 ${order.targetTerritoryId}，擊退 ${COUNTRY_NAMES[order.countryId] || order.countryId}。`,
+              ? `${buildCountryNames(game.scenarioId || 'wwi-global')[order.countryId] || order.countryId} 軍突破 ${buildCountryNames(game.scenarioId || 'wwi-global')[defenderId] || defenderId} 的防線，攻佔 ${order.targetTerritoryId}。`
+              : `${buildCountryNames(game.scenarioId || 'wwi-global')[defenderId] || defenderId} 成功守住 ${order.targetTerritoryId}，擊退 ${buildCountryNames(game.scenarioId || 'wwi-global')[order.countryId] || order.countryId}。`,
           });
 
           this.applyCasualtiesToDivisions(order.countryId, attackerCasualties, allDivisions);
@@ -347,27 +350,27 @@ export class TurnResolver {
           } else {
             orderState.morale = Math.max(0, orderState.morale - 3);
           }
-          events.push(`${COUNTRY_NAMES[order.countryId] || order.countryId} vs ${COUNTRY_NAMES[defenderId] || defenderId} → ${attackerWins ? '攻方勝' : '守方勝'}`);
+          events.push(`${buildCountryNames(game.scenarioId || 'wwi-global')[order.countryId] || order.countryId} vs ${buildCountryNames(game.scenarioId || 'wwi-global')[defenderId] || defenderId} → ${attackerWins ? '攻方勝' : '守方勝'}`);
 
         } else if (order.type === 'DEFEND') {
           orderState.morale = Math.min(100, orderState.morale + 2);
-          events.push(`${COUNTRY_NAMES[order.countryId] || order.countryId} 進入防禦態勢`);
+          events.push(`${buildCountryNames(game.scenarioId || 'wwi-global')[order.countryId] || order.countryId} 進入防禦態勢`);
         } else if (order.type === 'RECRUIT') {
           continue;
         } else if (order.type === 'FORTIFY') {
           orderState.gold = Math.max(0, orderState.gold - 20);
-          events.push(`${COUNTRY_NAMES[order.countryId] || order.countryId} 修築防禦工事`);
+          events.push(`${buildCountryNames(game.scenarioId || 'wwi-global')[order.countryId] || order.countryId} 修築防禦工事`);
         } else if (order.type === 'MOVE') {
           const moveFx = techFx(orderState);
           const moveCost = Math.round(5 * (1 + (moveFx.moveCostPct || 0) / 100));
           orderState.gold = Math.max(0, orderState.gold - moveCost);
           orderState.morale = Math.min(100, orderState.morale + 1);
-          events.push(`${COUNTRY_NAMES[order.countryId] || order.countryId} 調動部隊至前線陣地`);
+          events.push(`${buildCountryNames(game.scenarioId || 'wwi-global')[order.countryId] || order.countryId} 調動部隊至前線陣地`);
         } else if (order.type === 'DIPLOMACY') {
           const dipFx = techFx(orderState);
           const dipGain = Math.round(2 * (1 + (dipFx.diplomacyBonusPct || 0) / 100));
           orderState.stability = Math.min(100, orderState.stability + dipGain);
-          events.push(`${COUNTRY_NAMES[order.countryId] || order.countryId} 發起外交行動，穩定度提升`);
+          events.push(`${buildCountryNames(game.scenarioId || 'wwi-global')[order.countryId] || order.countryId} 發起外交行動，穩定度提升`);
         }
       }
 
@@ -378,7 +381,7 @@ export class TurnResolver {
         const comp = ro.recruitComposition as Record<string, number> | null;
         if (comp) {
           const parts = Object.entries(comp).map(([uid, qty]) => `${unitMap.get(uid)?.nameZh || uid} x${qty}`);
-          events.push(`${COUNTRY_NAMES[ro.countryId] || ro.countryId} 完成招募: ${parts.join(', ')}`);
+          events.push(`${buildCountryNames(game.scenarioId || 'wwi-global')[ro.countryId] || ro.countryId} 完成招募: ${parts.join(', ')}`);
         }
       }
 

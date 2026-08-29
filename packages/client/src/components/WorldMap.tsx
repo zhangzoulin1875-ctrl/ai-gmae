@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
+import { getScenario } from '@wwi/shared';
 import type { CountryDefinition } from '@wwi/shared';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -24,6 +25,7 @@ interface WorldMapProps {
   onSelectCountry?: (country: CountryDefinition | null) => void;
   mapSelectMode?: 'target' | 'from';
   takenCountryIds?: string[]; // countries already taken — shown dimmed, not clickable
+  scenarioId?: string; // scenario ID for map bounds + province overrides
 }
 
 // Darken a hex color by mixing with black at the given ratio
@@ -37,7 +39,7 @@ function dimColor(hex: string, ratio: number): string {
   return `#${dr.toString(16).padStart(2,'0')}${dg.toString(16).padStart(2,'0')}${db.toString(16).padStart(2,'0')}`;
 }
 
-const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSelectCountry, mapSelectMode, takenCountryIds }) => {
+const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSelectCountry, mapSelectMode, takenCountryIds, scenarioId }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const hoveredIdRef = useRef<string | number | null>(null);
@@ -51,6 +53,15 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
 
   countriesRef.current = countries;
   onSelectRef.current = onSelectCountry;
+
+  // Compute map center/zoom from scenario bounds
+  const scenario = scenarioId ? getScenario(scenarioId) : undefined;
+  const mapBounds = scenario?.mapBounds;
+  const mapCenter: [number, number] = mapBounds
+    ? [(mapBounds[0][0] + mapBounds[1][0]) / 2, (mapBounds[0][1] + mapBounds[1][1]) / 2]
+    : [10, 25];
+  const mapZoom = mapBounds ? 2.5 : 1.2;
+  const provinceOverrides = scenario?.provinceOverrides;
 
   // Build MapLibre "match" expression: wwi country id -> hex color
   // Taken countries are dimmed (50% darker)
@@ -109,8 +120,8 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
             },
           ],
         },
-        center: [10, 25],
-        zoom: 1.2,
+        center: mapCenter,
+        zoom: mapZoom,
         minZoom: 0.5,
         maxZoom: 8,
         attributionControl: false,
@@ -135,7 +146,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
     map.on('load', () => {
       try {
         map.resize();
-        map.jumpTo({ center: [10, 25], zoom: 1.2 });
+        map.jumpTo({ center: mapCenter, zoom: mapZoom });
 
         // GeoJSON source — promoteId lets us use feature-state for hover
         map.addSource('provinces', {
@@ -143,6 +154,24 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
           data: GEOJSON_URL,
           promoteId: 'id',
         });
+
+        // Apply province-level overrides from scenario (e.g. warlord China split)
+        if (provinceOverrides) {
+          const source = map.getSource('provinces');
+          const data = source._data;
+          let modified = 0;
+          for (const feat of data.features) {
+            const featId = feat.properties?.id || feat.id;
+            if (featId && provinceOverrides[featId]) {
+              feat.properties.wwi = provinceOverrides[featId];
+              modified++;
+            }
+          }
+          if (modified > 0) {
+            source.setData(data);
+            console.log(`[WorldMap] Applied ${modified} province overrides from scenario`);
+          }
+        }
 
         // 1) Province fills — colored by wwi, brightens on hover via feature-state
         map.addLayer({

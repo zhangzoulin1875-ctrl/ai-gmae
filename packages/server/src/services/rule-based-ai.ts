@@ -10,7 +10,7 @@
  * 5. Multi-turn Memory — track enemy strength patterns
  */
 
-import { WWI_COUNTRIES } from '@wwi/shared';
+import { WWI_COUNTRIES, getScenario } from '@wwi/shared';
 import type { CountryState } from '@prisma/client';
 
 // === Types ===
@@ -285,7 +285,15 @@ export class RuleBasedAI {
   }
 
   private cn(id: string): string {
+    // Look across all registered scenarios since this class has no game context;
+    // display-name lookup only, falls back to the raw id if not found anywhere.
     const def = WWI_COUNTRIES.find((c) => c.id === id);
-    return def?.nameZh || def?.name || id;
+    if (def) return def.nameZh || def.name || id;
+    for (const scenarioId of ['warlord-asia', 'wwi-europe', 'wwii-europe', 'wwii-asia', 'coldwar-global']) {
+      const scenario = getScenario(scenarioId);
+      const found = scenario?.countries.find((c) => c.id === id);
+      if (found) return found.nameZh || found.name || id;
+    }
+    return id;
   }
 }

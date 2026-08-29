@@ -5,7 +5,7 @@ import { getApiUrl } from '../lib/api';
 import WorldMap from '../components/WorldMap';
 
 interface CurrentGameInfo {
-  game: { id: string; name: string; status: string; currentTurn: number; createdAt: string } | null;
+  game: { id: string; name: string; status: string; currentTurn: number; createdAt: string; scenarioId?: string } | null;
   totalCountries: number;
   takenCountryIds: string[];
   myCountryId: string | null;
@@ -168,6 +168,7 @@ const Lobby: React.FC = () => {
                   takenCountryIds={info.takenCountryIds}
                   selectedCountryId={clickedCountry?.id || null}
                   onSelectCountry={handleSelectCountry}
+                  scenarioId={info.game?.scenarioId}
                 />
 
                 {clickedCountry && (

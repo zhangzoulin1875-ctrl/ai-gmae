@@ -18,6 +18,8 @@ const Admin: React.FC = () => {
   // Game management state
   const [games, setGames] = useState<any[]>([]);
   const [newGameName, setNewGameName] = useState('');
+  const [scenarios, setScenarios] = useState<any[]>([]);
+  const [selectedScenario, setSelectedScenario] = useState('wwi-global');
   const [gameActionLoading, setGameActionLoading] = useState(false);
   const [gameError, setGameError] = useState('');
   const [stats, setStats] = useState<any>(null);
@@ -52,6 +54,7 @@ const Admin: React.FC = () => {
         setAuthed(true);
         loadConfig();
         loadGames();
+    loadScenarios();
       } else {
         setError(data.error || '驗證失敗');
       }
@@ -76,6 +79,19 @@ const Admin: React.FC = () => {
     } catch (err) {
       console.error('載入設定失敗');
     }
+  };
+
+  const loadScenarios = async () => {
+    const token = localStorage.getItem('adminToken');
+    try {
+      const res = await fetch(getApiUrl('/api/admin/scenarios'), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setScenarios(data);
+      }
+    } catch {}
   };
 
   const loadGames = async () => {
@@ -244,7 +260,7 @@ const Admin: React.FC = () => {
       const res = await fetch(getApiUrl('/api/admin/games'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name: newGameName.trim() }),
+        body: JSON.stringify({ name: newGameName.trim(), scenarioId: selectedScenario }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -819,8 +835,8 @@ const Admin: React.FC = () => {
                   </div>
                 </div>
               ) : (
-                <form onSubmit={createGame} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end' }}>
-                  <div style={{ flex: 1 }}>
+                <form onSubmit={createGame} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: '200px' }}>
                     <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
                       戰局名稱
                     </label>
@@ -834,6 +850,24 @@ const Admin: React.FC = () => {
                       required
                     />
                   </div>
+                  <div style={{ minWidth: '220px' }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
+                      開局情境
+                    </label>
+                    <select
+                      className="input-field"
+                      value={selectedScenario}
+                      onChange={(e) => setSelectedScenario(e.target.value)}
+                      style={{ width: '100%' }}
+                    >
+                      {scenarios.length === 0 && <option value="wwi-global">一戰全球</option>}
+                      {scenarios.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          [{s.era}] {s.nameZh} ({s.countryCount} 國)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <button
                     type="submit"
                     disabled={gameActionLoading}
@@ -844,7 +878,7 @@ const Admin: React.FC = () => {
                 </form>
               )}
               <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '0.75rem' }}>
-                一次只能有一場進行中的戰局。玩家進入大廳後採先搶先贏方式選擇國家,選完就只能等下一局。
+                最多可同時開啟 2 個戰局（主戰局 + Beta 測試服）。玩家進入大廳後採先搶先贏方式選擇國家,選完就只能等下一局。
               </p>
             </div>
 

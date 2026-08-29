@@ -47,7 +47,7 @@ interface PlayerInfo {
 }
 
 interface GameState {
-  game: { id: string; name: string; status: string; currentTurn: number; nextTurnAt?: string };
+  game: { id: string; name: string; status: string; currentTurn: number; nextTurnAt?: string; scenarioId?: string };
   myCountryId: string | null;
   players: PlayerInfo[];
   countryStates: CountryStateInfo[];
@@ -780,6 +780,7 @@ const Game: React.FC = () => {
                   selectedCountryId={mapSelectMode === 'target' ? (targetTerritory || selectedCountry?.id) : (fromTerritory || selectedCountry?.id)}
                   onSelectCountry={handleSelectCountry}
                   mapSelectMode={mapSelectMode}
+                  scenarioId={state?.game?.scenarioId}
                 />
               </ErrorBoundary>
             </div>

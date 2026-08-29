@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { WWI_COUNTRIES } from '@wwi/shared';
+import { WWI_COUNTRIES, getScenario } from '@wwi/shared';
 import { prisma } from '../lib/prisma.js';
 import { RuleBasedAI } from '../services/rule-based-ai.js';
 import { TECH_TREE, computeTechCost } from '@wwi/shared';
@@ -11,7 +11,26 @@ import { authMiddleware } from '../middleware/auth.js';
 const router = Router();
 
 const VALID_COUNTRY_IDS = new Set(WWI_COUNTRIES.map((c) => c.id));
-const TOTAL_COUNTRIES = WWI_COUNTRIES.length;
+
+/** Get valid country IDs for a game's scenario */
+function getValidCountryIds(scenarioId: string): Set<string> {
+  const scenario = getScenario(scenarioId);
+  if (scenario) return new Set(scenario.countries.map(c => c.id));
+  return VALID_COUNTRY_IDS;
+}
+
+/** Get country name zh for a scenario */
+function getCountryNameZh(scenarioId: string): Record<string, string> {
+  const scenario = getScenario(scenarioId);
+  if (scenario) return Object.fromEntries(scenario.countries.map(c => [c.id, c.nameZh]));
+  return Object.fromEntries(WWI_COUNTRIES.map(c => [c.id, c.nameZh]));
+}
+
+/** Get total countries for a scenario */
+function getTotalCountries(scenarioId: string): number {
+  const scenario = getScenario(scenarioId);
+  return scenario ? scenario.countries.length : WWI_COUNTRIES.length;
+}
 
 // The single game that's open for joining / in progress right now (if any)
 async function findCurrentGame() {
@@ -29,7 +48,7 @@ router.get('/current', authMiddleware, async (req: any, res) => {
     if (!game) {
       return res.json({
         game: null,
-        totalCountries: TOTAL_COUNTRIES,
+        totalCountries: getTotalCountries('wwi-global'),
         takenCountryIds: [],
         myCountryId: null,
         players: [],
@@ -45,8 +64,9 @@ router.get('/current', authMiddleware, async (req: any, res) => {
         status: game.status,
         currentTurn: game.currentTurn,
         createdAt: game.createdAt,
+        scenarioId: game.scenarioId,
       },
-      totalCountries: TOTAL_COUNTRIES,
+      totalCountries: getTotalCountries(game.scenarioId || 'wwi-global'),
       takenCountryIds: game.players.map((p) => p.countryId),
       myCountryId: myPlayer ? myPlayer.countryId : null,
       players: game.players.map((p) => ({
@@ -66,9 +86,6 @@ router.get('/current', authMiddleware, async (req: any, res) => {
 router.post('/join', authMiddleware, async (req: any, res) => {
   try {
     const { countryId } = req.body as { countryId?: string };
-    if (!countryId || !VALID_COUNTRY_IDS.has(countryId)) {
-      return res.status(400).json({ error: '無效的國家' });
-    }
 
     const dbUser = await prisma.user.findUnique({ where: { id: req.user.id } });
     if (!dbUser) {
@@ -80,12 +97,17 @@ router.post('/join', authMiddleware, async (req: any, res) => {
       return res.status(404).json({ error: '目前沒有進行中的戰局,請等待管理員開啟新戰局' });
     }
 
+    const validIds = getValidCountryIds(game.scenarioId || 'wwi-global');
+    if (!countryId || !validIds.has(countryId)) {
+      return res.status(400).json({ error: '無效的國家' });
+    }
+
     const existing = game.players.find((p) => p.userId === req.user.id);
     if (existing) {
       return res.json({ gameId: game.id, countryId: existing.countryId, alreadyJoined: true });
     }
 
-    if (game.players.length >= TOTAL_COUNTRIES) {
+    if (game.players.length >= getTotalCountries(game.scenarioId || 'wwi-global')) {
       return res.status(409).json({ error: '所有國家已被選完,請等待下一局' });
     }
 
@@ -120,7 +142,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
       name: game.name,
       status: game.status,
       currentTurn: game.currentTurn,
-      maxPlayers: TOTAL_COUNTRIES,
+      maxPlayers: getTotalCountries(game.scenarioId || 'wwi-global'),
       turnIntervalHours: game.turnIntervalHrs,
       lastTurnResolvedAt: game.lastTurnAt,
       nextTurnAt: game.nextTurnAt,
@@ -312,7 +334,7 @@ router.post('/:id/ai-suggest', authMiddleware, async (req: any, res) => {
     const suggestions = ruleAI.generateOrders(myState as any, allStates as any, game.currentTurn);
 
     // Map to client-friendly format with Chinese labels
-    const COUNTRY_NAMES = Object.fromEntries(WWI_COUNTRIES.map((c) => [c.id, c.nameZh]));
+    const COUNTRY_NAMES = getCountryNameZh(game.scenarioId || 'wwi-global');
     const TYPE_LABELS: Record<string, string> = {
       ATTACK: '進攻', DEFEND: '防守', FORTIFY: '築防', MOVE: '調動',
       RECRUIT: '徵兵', DIPLOMACY: '外交',

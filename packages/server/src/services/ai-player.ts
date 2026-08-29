@@ -1,7 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { AIEngine } from './ai-engine.js';
 import { RuleBasedAI } from './rule-based-ai.js';
-import { WWI_COUNTRIES, recruitCost } from '@wwi/shared';
+import { WWI_COUNTRIES, getScenario, recruitCost } from '@wwi/shared';
 import type { AIProvider } from '@wwi/shared';
 
 const MAX_LLM_CALLS_PER_TURN = parseInt(process.env.MAX_LLM_CALLS_PER_TURN || '2', 10);

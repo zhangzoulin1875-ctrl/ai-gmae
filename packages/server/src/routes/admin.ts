@@ -2,7 +2,7 @@ import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import type { AIConfig, AIProvider } from '@wwi/shared';
 import { AIEngine } from '../services/ai-engine.js';
-import { WWI_COUNTRIES } from '@wwi/shared';
+import { WWI_COUNTRIES, listScenarios, getScenario } from '@wwi/shared';
 import { prisma } from '../lib/prisma.js';
 import { initializeGameCountries } from '../services/game-init.js';
 import { TurnResolver } from '../services/turn-resolver.js';
@@ -136,7 +136,19 @@ router.post('/test-provider', adminAuth, async (req, res) => {
   }
 });
 
+const MAX_CONCURRENT_GAMES = 2;
 const TOTAL_COUNTRIES = WWI_COUNTRIES.length;
+
+// Scenario listing for admin UI
+router.get('/scenarios', adminAuth, (_req, res) => {
+  res.json(listScenarios());
+});
+
+router.get('/scenarios/:id', adminAuth, (req, res) => {
+  const scenario = getScenario(req.params.id);
+  if (!scenario) return res.status(404).json({ error: '找不到此情境' });
+  res.json(scenario);
+});
 
 // Get all games (admin) - most recent first, with player counts
 router.get('/games', adminAuth, async (_req, res) => {
@@ -166,16 +178,20 @@ router.get('/games', adminAuth, async (_req, res) => {
 // Open a new game - only one WAITING/ACTIVE game is allowed at a time
 router.post('/games', adminAuth, async (req, res) => {
   try {
-    const { name } = req.body as { name?: string };
+    const { name, scenarioId } = req.body as { name?: string; scenarioId?: string };
     if (!name || !name.trim()) {
       return res.status(400).json({ error: '戰局名稱必填' });
     }
+    const scenario = getScenario(scenarioId || 'wwi-global');
+    if (!scenario) {
+      return res.status(400).json({ error: '無效的情境 ID' });
+    }
 
-    const existing = await prisma.gameRoom.findFirst({
+    const activeGames = await prisma.gameRoom.count({
       where: { status: { in: ['WAITING', 'ACTIVE'] } },
     });
-    if (existing) {
-      return res.status(409).json({ error: `已有進行中的戰局「${existing.name}」,請先結束才能開啟新戰局` });
+    if (activeGames >= MAX_CONCURRENT_GAMES) {
+      return res.status(409).json({ error: `目前已達上限 ${MAX_CONCURRENT_GAMES} 個並行戰局，請先結束一個戰局才能開啟新戰局` });
     }
 
     // Clean up any orphaned data from COMPLETED games (defensive — the end
@@ -200,11 +216,11 @@ router.post('/games', adminAuth, async (req, res) => {
     }
 
     const game = await prisma.gameRoom.create({
-      data: { name: name.trim(), status: 'ACTIVE' },
+      data: { name: name.trim(), scenarioId: scenario.id, status: 'ACTIVE' },
     });
 
-    // Initialize all 54 country states with starting values
-    await initializeGameCountries(game.id);
+    // Initialize country states for this scenario
+    await initializeGameCountries(game.id, scenario.id);
 
     res.json({ success: true, game });
   } catch (error: any) {
@@ -258,7 +274,10 @@ router.post('/games/:gameId/assign-ai', adminAuth, async (req, res) => {
     // Find or create an AI user
     let aiUser = await prisma.user.findFirst({ where: { discordId: `ai-${countryId}` } });
     if (!aiUser) {
-      const countryDef = WWI_COUNTRIES.find((c) => c.id === countryId);
+      const game = await prisma.gameRoom.findUnique({ where: { id: req.params.gameId } });
+      const scenario = game ? getScenario(game.scenarioId) : undefined;
+      const countryDef = (scenario?.countries || []).find((c) => c.id === countryId)
+        || WWI_COUNTRIES.find((c) => c.id === countryId);
       aiUser = await prisma.user.create({
         data: { discordId: `ai-${countryId}`, username: `AI - ${countryDef?.nameZh || countryId}`, isAdmin: false },
       });
@@ -564,7 +583,9 @@ router.get('/games/:gameId/countries', adminAuth, async (req, res) => {
     });
     if (!game) return res.status(404).json({ error: '找不到戰局' });
 
-    const countries = WWI_COUNTRIES.map((c) => {
+    const scenario = getScenario(game.scenarioId);
+    const countryList = scenario?.countries || WWI_COUNTRIES;
+    const countries = countryList.map((c) => {
       const player = game.players.find((p) => p.countryId === c.id);
       return {
         countryId: c.id,
