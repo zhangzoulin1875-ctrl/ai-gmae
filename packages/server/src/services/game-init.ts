@@ -1,6 +1,7 @@
 import { WWI_COUNTRIES, getScenario } from '@wwi/shared';
 import type { ScenarioCountry } from '@wwi/shared';
 import { getTerritoryStats, getProvincesForCountry } from '../lib/territory-stats.js';
+import { getWarlordProvincesForCountry } from '../lib/warlord-provinces.js';
 import { prisma } from '../lib/prisma.js';
 import { ensureSystemUnits } from './military-init.js';
 
@@ -109,16 +110,31 @@ function getCountryStats(countryId: string): { areaKm2: number; population: numb
 }
 
 /**
- * Get the list of provinces for a country.
- * For warlord factions, we return an empty array (territory tracking
- * will be handled by the scenario's provinceOverrides on the client side).
- * For real countries, we use the precomputed province-to-country map.
+ * Get the list of provinces for a country, scenario-aware.
+ *
+ * For the warlord-asia scenario, we load a dedicated province-to-country
+ * mapping (built from the scenario's GeoJSON + provinceOverrides +
+ * territoryMap) so every warlord faction and foreign power gets its
+ * actual province IDs as starting territories.
+ *
+ * For other scenarios, we use the precomputed province-stats.json mapping
+ * for real countries, and fall back to [countryId] for IDs not in the map
+ * (e.g. warlord factions in non-warlord scenarios).
  */
-function getCountryProvinces(countryId: string): string[] {
-  if (countryId.startsWith('wm_')) {
-    return [countryId]; // warlord factions use their own ID as territory
+function getCountryProvinces(countryId: string, scenarioId?: string): string[] {
+  // Warlord scenario: use dedicated mapping
+  if (scenarioId === 'warlord-asia') {
+    const warlordMap = getWarlordProvincesForCountry(countryId);
+    if (warlordMap.length > 0) return warlordMap;
   }
-  return getProvincesForCountry(countryId);
+
+  // Default: use precomputed province stats
+  const provinces = getProvincesForCountry(countryId);
+  if (provinces.length > 0) return provinces;
+
+  // Fallback for country IDs not in province-stats (e.g. warlord factions
+  // outside the warlord scenario, or custom scenario countries)
+  return [countryId];
 }
 
 export async function initializeGameCountries(gameId: string, scenarioId?: string): Promise<void> {
@@ -144,7 +160,7 @@ export async function initializeGameCountries(gameId: string, scenarioId?: strin
       industry: resources.industry,
       manpower: resources.manpower,
       stability: resources.stability,
-      territories: getCountryProvinces(c.id),
+      territories: getCountryProvinces(c.id, scenarioId),
       isAIControlled: false,
       playerId: null,
       techPoints: 50,

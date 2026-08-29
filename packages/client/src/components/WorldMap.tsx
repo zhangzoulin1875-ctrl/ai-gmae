@@ -23,6 +23,7 @@ interface WorldMapProps {
   countries: CountryDefinition[];
   selectedCountryId?: string | null;
   onSelectCountry?: (country: CountryDefinition | null) => void;
+  onSelectProvince?: (provinceId: string, provinceName: string, country: CountryDefinition) => void;
   mapSelectMode?: 'target' | 'from';
   takenCountryIds?: string[]; // countries already taken — shown dimmed, not clickable
   scenarioId?: string; // scenario ID for map bounds + province overrides
@@ -39,7 +40,7 @@ function dimColor(hex: string, ratio: number): string {
   return `#${dr.toString(16).padStart(2,'0')}${dg.toString(16).padStart(2,'0')}${db.toString(16).padStart(2,'0')}`;
 }
 
-const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSelectCountry, mapSelectMode, takenCountryIds, scenarioId }) => {
+const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSelectCountry, onSelectProvince, mapSelectMode, takenCountryIds, scenarioId }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const hoveredIdRef = useRef<string | number | null>(null);
@@ -53,6 +54,8 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
 
   countriesRef.current = countries;
   onSelectRef.current = onSelectCountry;
+  const onSelectProvinceRef = useRef(onSelectProvince);
+  onSelectProvinceRef.current = onSelectProvince;
 
   // Compute map center/zoom from scenario bounds
   const scenario = scenarioId ? getScenario(scenarioId) : undefined;
@@ -62,6 +65,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
     : [10, 25];
   const mapZoom = mapBounds ? 2.5 : 1.2;
   const provinceOverrides = scenario?.provinceOverrides;
+  const territoryMap = scenario?.territoryMap;
   const geojsonUrl = scenario?.geojsonUrl || DEFAULT_GEOJSON_URL;
 
   // Build MapLibre "match" expression: wwi country id -> hex color
@@ -157,19 +161,31 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
         const geojsonRes = await fetch(geojsonUrl);
         const geojson = await geojsonRes.json();
 
-        // Apply province-level overrides from scenario (e.g. warlord China split)
-        if (provinceOverrides && Array.isArray(geojson?.features)) {
-          let modified = 0;
+        // Apply scenario territory mapping:
+        // 1. territoryMap: ISO2 code → scenario country ID (e.g. 'AF' → 'gbr')
+        // 2. provinceOverrides: feature ID → scenario country ID (e.g. city → warlord faction)
+        // Province overrides take precedence over territoryMap.
+        if (Array.isArray(geojson?.features)) {
+          let tmapModified = 0;
+          let povrModified = 0;
           for (const feat of geojson.features) {
+            // First: apply territoryMap by ISO2 code
+            if (territoryMap && feat.properties?.iso2) {
+              const mapped = territoryMap[feat.properties.iso2];
+              if (mapped) {
+                feat.properties.wwi = mapped;
+                tmapModified++;
+              }
+            }
+            // Then: apply provinceOverrides by feature ID (overrides territoryMap)
             const featId = feat.properties?.id ?? feat.id;
-            if (featId && provinceOverrides[featId]) {
+            if (provinceOverrides && featId && provinceOverrides[featId]) {
               feat.properties.wwi = provinceOverrides[featId];
-              modified++;
+              povrModified++;
             }
           }
-          if (modified > 0) {
-            console.log(`[WorldMap] Applied ${modified} province overrides from scenario`);
-          }
+          if (tmapModified > 0) console.log(`[WorldMap] Applied territoryMap to ${tmapModified} features`);
+          if (povrModified > 0) console.log(`[WorldMap] Applied ${povrModified} province overrides from scenario`);
         }
 
         // GeoJSON source — promoteId lets us use feature-state for hover
@@ -292,10 +308,17 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
         map.on('click', 'province-fill', (e: any) => {
           const features = e.features;
           if (!features || features.length === 0) return;
-          const wwi = features[0].properties?.wwi;
+          const props = features[0].properties;
+          const wwi = props?.wwi;
+          const provinceId = props?.id;
+          const provinceName = props?.nameZh || props?.name || provinceId;
           const country = wwi ? countriesRef.current.find((c) => c.id === wwi) : null;
           if (country) {
-            // Check if taken — still fire callback so parent can show "taken" message
+            // Fire province-level callback if provided
+            if (onSelectProvinceRef.current && provinceId) {
+              onSelectProvinceRef.current(provinceId, provinceName, country);
+            }
+            // Also fire country-level callback for backward compatibility
             onSelectRef.current?.(country);
           }
         });

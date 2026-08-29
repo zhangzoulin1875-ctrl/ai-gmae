@@ -25,6 +25,25 @@ function buildCountryNames(scenarioId: string): Record<string, string> {
   return Object.fromEntries(countries.map((c) => [c.id, c.nameZh]));
 }
 
+// Province name lookup for battle narratives
+import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+const __filename_tr = fileURLToPath(import.meta.url);
+const __dirname_tr = dirname(__filename_tr);
+const require_tr = createRequire(import.meta.url);
+const provinceNamesData = require_tr(join(__dirname_tr, '..', 'data', 'province-names.json'));
+
+function buildProvinceNames(scenarioId: string): Record<string, string> {
+  if (scenarioId === 'warlord-asia') return provinceNamesData['warlord-asia'] || {};
+  return provinceNamesData['global'] || {};
+}
+
+function getProvinceLabel(territoryId: string, scenarioId: string): string {
+  const names = buildProvinceNames(scenarioId);
+  return names[territoryId] || territoryId;
+}
+
 function techFx(cs: any): TechEffects {
   return (cs.techEffects || {}) as TechEffects;
 }
@@ -274,10 +293,10 @@ export class TurnResolver {
               winnerCountryId: order.countryId,
               attackerCasualties: {}, defenderCasualties: {},
               territoryCaptured: true,
-              narrative: `${buildCountryNames(game.scenarioId || 'wwi-global')[order.countryId] || order.countryId} 軍隊未遇抵抗，佔領 ${order.targetTerritoryId}。`,
+              narrative: `${buildCountryNames(game.scenarioId || 'wwi-global')[order.countryId] || order.countryId} 軍隊未遇抵抗，佔領 ${getProvinceLabel(order.targetTerritoryId, game.scenarioId || 'wwi-global')}。`,
             });
             if (!orderState.territories.includes(order.targetTerritoryId)) orderState.territories.push(order.targetTerritoryId);
-            events.push(`${buildCountryNames(game.scenarioId || 'wwi-global')[order.countryId] || order.countryId} 佔領 ${order.targetTerritoryId}`);
+            events.push(`${buildCountryNames(game.scenarioId || 'wwi-global')[order.countryId] || order.countryId} 佔領 ${getProvinceLabel(order.targetTerritoryId, game.scenarioId || 'wwi-global')}`);
             continue;
           }
 
@@ -336,8 +355,8 @@ export class TurnResolver {
             attackerCasualties, defenderCasualties,
             territoryCaptured: attackerWins,
             narrative: attackerWins
-              ? `${buildCountryNames(game.scenarioId || 'wwi-global')[order.countryId] || order.countryId} 軍突破 ${buildCountryNames(game.scenarioId || 'wwi-global')[defenderId] || defenderId} 的防線，攻佔 ${order.targetTerritoryId}。`
-              : `${buildCountryNames(game.scenarioId || 'wwi-global')[defenderId] || defenderId} 成功守住 ${order.targetTerritoryId}，擊退 ${buildCountryNames(game.scenarioId || 'wwi-global')[order.countryId] || order.countryId}。`,
+              ? `${buildCountryNames(game.scenarioId || 'wwi-global')[order.countryId] || order.countryId} 軍突破 ${buildCountryNames(game.scenarioId || 'wwi-global')[defenderId] || defenderId} 的防線，攻佔 ${getProvinceLabel(order.targetTerritoryId, game.scenarioId || 'wwi-global')}。`
+              : `${buildCountryNames(game.scenarioId || 'wwi-global')[defenderId] || defenderId} 成功守住 ${getProvinceLabel(order.targetTerritoryId, game.scenarioId || 'wwi-global')}，擊退 ${buildCountryNames(game.scenarioId || 'wwi-global')[order.countryId] || order.countryId}。`,
           });
 
           this.applyCasualtiesToDivisions(order.countryId, attackerCasualties, allDivisions);

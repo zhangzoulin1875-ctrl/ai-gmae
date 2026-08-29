@@ -69,6 +69,35 @@ const Game: React.FC = () => {
     }
     return WWI_COUNTRIES as CountryDefinition[];
   }, [state?.game?.scenarioId]);
+
+  // Province name lookup — loads province names from the scenario's GeoJSON
+  const [provinceNames, setProvinceNames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const scenario = state?.game?.scenarioId ? getScenario(state.game.scenarioId) : undefined;
+    const url = scenario?.geojsonUrl || '/maps/provinces-1914.geojson';
+    fetch(url)
+      .then(r => r.json())
+      .then(geo => {
+        const names: Record<string, string> = {};
+        for (const feat of geo.features || []) {
+          const id = feat.properties?.id;
+          const name = feat.properties?.nameZh || feat.properties?.name || id;
+          if (id) names[id] = name;
+        }
+        setProvinceNames(names);
+      })
+      .catch(() => {});
+  }, [state?.game?.scenarioId]);
+
+  // Get display name for a territory ID (could be a province ID or country ID)
+  const getTerritoryName = (tid: string) => {
+    if (!tid) return '';
+    // Try province name first
+    if (provinceNames[tid]) return provinceNames[tid];
+    // Fall back to country name
+    const c = scenarioCountries.find((x) => x.id === tid);
+    return c ? c.nameZh : tid;
+  };
   const [militaryState, setMilitaryState] = useState<MilitaryState | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [loading, setLoading] = useState(true);
@@ -375,18 +404,18 @@ const Game: React.FC = () => {
 
     if (orderType === 'ATTACK') {
       if (!targetTerritory) {
-        setFormError('進攻指令必須在地圖上選取目標國家！');
+        setFormError('進攻指令必須在地圖上選取目標省份！');
         return;
       }
       if (targetTerritory === state.myCountryId) {
-        setFormError('無法攻擊自己的國家！');
+        setFormError('無法攻擊自己控制的省份！');
         return;
       }
     }
 
     if (orderType === 'DIPLOMACY') {
       if (!targetTerritory) {
-        setFormError('外交指令必須選擇目標國家！');
+        setFormError('外交指令必須選擇目標！');
         return;
       }
     }
@@ -561,10 +590,16 @@ const Game: React.FC = () => {
   const handleSelectCountry = (c: CountryDefinition | null) => {
     if (!c) return;
     setSelectedCountry(c);
+    // No longer set territory here — handleSelectProvince handles that
+  };
+
+  // Province-level selection: store province ID as from/target territory
+  const handleSelectProvince = (provinceId: string, _provinceName: string, country: CountryDefinition) => {
+    setSelectedCountry(country);
     if (mapSelectMode === 'from') {
-      setFromTerritory(c.id);
+      setFromTerritory(provinceId);
     } else {
-      setTargetTerritory(c.id);
+      setTargetTerritory(provinceId);
     }
   };
 
@@ -614,7 +649,7 @@ const Game: React.FC = () => {
     unitError, unitSuccess, handleDesignUnit, handleDeleteUnit,
     CATEGORY_LABELS, CATEGORIES,
     fetchMilitaryState,
-    getCountryName, getCountryNameZh, getCountryFlag,
+    getCountryName, getCountryNameZh, getCountryFlag, getTerritoryName,
     activeDivisions,
     resolving, handleReady,
   };
@@ -771,7 +806,7 @@ const Game: React.FC = () => {
                     style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}
                     onClick={() => setMapSelectMode('target')}
                   >
-                    🎯 選取目標國家 {targetTerritory && `(${getCountryNameZh(targetTerritory)})`}
+                    🎯 選取目標省份 {targetTerritory && `(${getTerritoryName(targetTerritory)})`}
                   </button>
                   <button
                     type="button"
@@ -779,7 +814,7 @@ const Game: React.FC = () => {
                     style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}
                     onClick={() => setMapSelectMode('from')}
                   >
-                    🚩 選取出發地 {fromTerritory && `(${getCountryNameZh(fromTerritory)})`}
+                    🚩 選取出發地 {fromTerritory && `(${getTerritoryName(fromTerritory)})`}
                   </button>
                 </div>
               </div>
@@ -789,6 +824,7 @@ const Game: React.FC = () => {
                   countries={scenarioCountries}
                   selectedCountryId={mapSelectMode === 'target' ? (targetTerritory || selectedCountry?.id) : (fromTerritory || selectedCountry?.id)}
                   onSelectCountry={handleSelectCountry}
+                  onSelectProvince={handleSelectProvince}
                   mapSelectMode={mapSelectMode}
                   scenarioId={state?.game?.scenarioId}
                 />
@@ -844,7 +880,7 @@ const Game: React.FC = () => {
                     <div key={o.id || i} style={{ padding: '0.5rem 0.75rem', borderLeft: '3px solid var(--accent-gold)', backgroundColor: 'var(--bg-tertiary)', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div>
                         <strong>{ORDER_TYPE_LABELS[o.type]}</strong>
-                        {o.targetTerritoryId && <span> → {getCountryName(o.targetTerritoryId)}</span>}
+                        {o.targetTerritoryId && <span> → {getTerritoryName(o.targetTerritoryId)}</span>}
                         {o.details && <span style={{ color: 'var(--text-muted)' }}> ({o.details})</span>}
                         <span style={{ color: o.status === 'PENDING' ? '#facc15' : '#22c55e', marginLeft: '0.5rem' }}>
                           {o.status === 'PENDING' ? '待結算' : '已結算'}
@@ -1018,7 +1054,7 @@ const Game: React.FC = () => {
 
                       {b.territoryCaptured && (
                         <div style={{ color: 'var(--accent-gold)', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem' }}>
-                          🚩 領土易主：{getCountryName(b.attackerCountryId)} 佔領了戰區 ({b.territoryId})
+                          🚩 領土易主：{getCountryName(b.attackerCountryId)} 佔領了 {getTerritoryName(b.territoryId)}
                         </div>
                       )}
 

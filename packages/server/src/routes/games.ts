@@ -7,6 +7,9 @@ import { validateCountryName } from '@wwi/shared';
 import { checkTechEligibility, aggregateTechEffects } from '../lib/tech-effects.js';
 import allianceRouter from './alliances.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { createRequire } from 'module';
+const require_games = createRequire(import.meta.url);
+const provinceNamesData = require_games('../data/province-names.json');
 
 const router = Router();
 
@@ -373,7 +376,7 @@ router.post('/:id/ai-suggest', authMiddleware, async (req: any, res) => {
       typeLabel: TYPE_LABELS[s.type] || s.type,
       fromTerritoryId: s.fromTerritoryId,
       targetTerritoryId: s.targetTerritoryId,
-      targetLabel: s.targetTerritoryId ? (COUNTRY_NAMES[s.targetTerritoryId] || s.targetTerritoryId) : null,
+      targetLabel: s.targetTerritoryId ? (COUNTRY_NAMES[s.targetTerritoryId] || (provinceNamesData['warlord-asia'] || {})[s.targetTerritoryId] || (provinceNamesData['global'] || {})[s.targetTerritoryId] || s.targetTerritoryId) : null,
       infantry: s.infantry,
       artillery: s.artillery,
       cavalry: s.cavalry,

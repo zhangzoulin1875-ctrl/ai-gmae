@@ -21,7 +21,7 @@ const OrdersPage: React.FC = () => {
     orderType, setOrderType, details, setDetails,
     mapSelectMode, setMapSelectMode,
     fromTerritory, setFromTerritory, targetTerritory, setTargetTerritory,
-    getCountryFlag, getCountryNameZh, getCountryName,
+    getCountryFlag, getCountryNameZh, getCountryName, getTerritoryName,
     selectedDivisionIds, toggleDivisionSelection,
     handleSubmitOrder, handleClearForm, handleReady,
     handleAiSuggest, aiSuggesting, resolving,
@@ -124,7 +124,7 @@ const OrdersPage: React.FC = () => {
                   {fromTerritory ? (
                     <>
                       <span>{getCountryFlag(fromTerritory)}</span>
-                      <span style={{ fontWeight: 600 }}>{getCountryNameZh(fromTerritory)}</span>
+                      <span style={{ fontWeight: 600 }}>{getTerritoryName(fromTerritory)}</span>
                     </>
                   ) : (
                     <span style={{ color: 'var(--text-muted)' }}>未設定</span>
@@ -138,15 +138,15 @@ const OrdersPage: React.FC = () => {
                 >
                   在地圖選取
                 </button>
-                {state?.myCountryId && fromTerritory !== state.myCountryId && (
+                {fromTerritory && (
                   <button
                     type="button"
                     className="btn-secondary"
                     style={{ padding: '0.5rem 0.6rem', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
-                    onClick={() => setFromTerritory(state.myCountryId!)}
-                    title="重設為我的國家"
+                    onClick={() => setFromTerritory('')}
+                    title="清除出發地"
                   >
-                    母國
+                    清除
                   </button>
                 )}
               </div>
@@ -162,10 +162,10 @@ const OrdersPage: React.FC = () => {
                   {targetTerritory ? (
                     <>
                       <span>{getCountryFlag(targetTerritory)}</span>
-                      <span style={{ fontWeight: 600 }}>{getCountryNameZh(targetTerritory)}</span>
+                      <span style={{ fontWeight: 600 }}>{getTerritoryName(targetTerritory)}</span>
                     </>
                   ) : (
-                    <span style={{ color: 'var(--text-muted)' }}>請點選目標國家</span>
+                    <span style={{ color: 'var(--text-muted)' }}>請點選目標省份</span>
                   )}
                 </div>
                 <button
@@ -266,7 +266,7 @@ const OrdersPage: React.FC = () => {
                   派遣 <strong>{selectedDivisionNames.length > 0 ? selectedDivisionNames.join('、') : '未選擇師團'}</strong>{' '}
                   ({orderType === 'ATTACK' ? '進攻' : orderType === 'DEFEND' ? '固守' : '移防'}{' '}
                   <strong style={{ color: targetTerritory ? '#4ade80' : '#f87171' }}>
-                    {targetTerritory ? getCountryName(targetTerritory) : '(請點選目標國家)'}
+                    {targetTerritory ? getCountryName(targetTerritory) : '(請點選目標省份)'}
                   </strong>) → 共 <strong>{selectedTotalUnits.toLocaleString()}</strong> 名兵力
                 </>
               )}
@@ -274,7 +274,7 @@ const OrdersPage: React.FC = () => {
                 <>修築防禦工事 → 花費 <strong style={{ color: '#c9a86b' }}>20 黃金</strong> (提升據點防禦等級)</>
               )}
               {orderType === 'DIPLOMACY' && (
-                <>向 <strong>{targetTerritory ? getCountryName(targetTerritory) : '(請點選目標國家)'}</strong> 發起外交協定/戰術提案</>
+                <>向 <strong>{targetTerritory ? getCountryName(targetTerritory) : '(請點選目標省份)'}</strong> 發起外交協定/戰術提案</>
               )}
               {orderType === 'RECRUIT' && (
                 <>請前往「招募兵力」頁面進行部隊動員招募。</>

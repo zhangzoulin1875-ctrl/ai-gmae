@@ -101,6 +101,7 @@ export interface GameContextValue {
   getCountryName: (cid: string) => string;
   getCountryNameZh: (cid: string) => string;
   getCountryFlag: (cid: string) => string;
+  getTerritoryName: (tid: string) => string;
 
   activeDivisions: any[];
 
