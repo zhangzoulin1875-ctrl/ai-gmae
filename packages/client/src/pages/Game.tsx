@@ -1,18 +1,14 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, NavLink, Outlet } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import {
   Order, OrderType, WWI_COUNTRIES, CountryDefinition,
 } from '@wwi/shared';
 import WorldMap from '../components/WorldMap';
 import ErrorBoundary from '../components/ErrorBoundary';
-import RecruitPanel from '../components/RecruitPanel';
-import DivisionPanel from '../components/DivisionPanel';
-import PolicyPanel from '../components/PolicyPanel';
-import TechTreePanel from '../components/TechTreePanel';
-import AlliancePanel from '../components/AlliancePanel';
 import NotificationBell from '../components/NotificationBell';
 import { getApiUrl, getSocketUrl, apiFetch } from '../lib/api';
+import { GameContext, GameContextValue } from '../contexts/GameContext';
 import { MilitaryState } from '../types/military';
 
 const ORDER_TYPE_LABELS: Record<OrderType, string> = {
@@ -58,8 +54,6 @@ interface GameState {
 }
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting';
-type TabType = 'orders' | 'recruit' | 'divisions' | 'policies' | 'workshop' | 'tech' | 'alliance';
-
 const Game: React.FC = () => {
   const { id: gameId } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -71,9 +65,11 @@ const Game: React.FC = () => {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
-  // Tab navigation state
-  const [activeTab, setActiveTab] = useState<TabType>('orders');
   const [notificationTrigger, setNotificationTrigger] = useState<number>(0);
+
+  const goToTab = useCallback((tab: string) => {
+    navigate(`/game/${gameId}/${tab}`);
+  }, [navigate, gameId]);
 
   // Order form state
   const [orderType, setOrderType] = useState<OrderType>('ATTACK');
@@ -349,7 +345,7 @@ const Game: React.FC = () => {
     if (!gameId || !state?.myCountryId) return;
 
     if (orderType === 'RECRUIT') {
-      setActiveTab('recruit');
+      goToTab('recruit');
       return;
     }
 
@@ -584,7 +580,37 @@ const Game: React.FC = () => {
     );
   }
 
+  const gameContextValue: GameContextValue = {
+    gameId: gameId || '',
+    state,
+    militaryState,
+    socket,
+    connectionStatus,
+    connectionError,
+    notificationTrigger,
+    orderType, setOrderType,
+    fromTerritory, setFromTerritory,
+    targetTerritory, setTargetTerritory,
+    selectedDivisionIds, toggleDivisionSelection,
+    details, setDetails,
+    formError, setFormError,
+    mapSelectMode, setMapSelectMode,
+    handleSubmitOrder, handleClearForm, handleWithdrawOrder,
+    myOrders,
+    aiSuggesting, handleAiSuggest,
+    goToTab,
+    myUnits, unitDesigning, unitDesignPrompt, setUnitDesignPrompt,
+    unitDesignCategory, setUnitDesignCategory,
+    unitError, unitSuccess, handleDesignUnit, handleDeleteUnit,
+    CATEGORY_LABELS, CATEGORIES,
+    fetchMilitaryState,
+    getCountryName, getCountryNameZh, getCountryFlag,
+    activeDivisions,
+    resolving, handleReady,
+  };
+
   return (
+    <GameContext.Provider value={gameContextValue}>
     <div>
       {/* Top Navbar Header */}
       <header className="navbar">
@@ -758,441 +784,45 @@ const Game: React.FC = () => {
               </ErrorBoundary>
             </div>
 
-            {/* Main Operations Navigation Tabs */}
-            <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '2px solid var(--border-color)', paddingBottom: '0.5rem' }}>
-              <button
-                type="button"
-                className={activeTab === 'orders' ? 'btn-primary' : 'btn-secondary'}
-                style={{ padding: '0.5rem 1rem', fontSize: '0.9rem' }}
-                onClick={() => setActiveTab('orders')}
-              >
-                ⚔️ 下達作戰指令
-              </button>
-              <button
-                type="button"
-                className={activeTab === 'recruit' ? 'btn-primary' : 'btn-secondary'}
-                style={{ padding: '0.5rem 1rem', fontSize: '0.9rem' }}
-                onClick={() => setActiveTab('recruit')}
-              >
-                🪣 招募兵力
-              </button>
-              <button
-                type="button"
-                className={activeTab === 'divisions' ? 'btn-primary' : 'btn-secondary'}
-                style={{ padding: '0.5rem 1rem', fontSize: '0.9rem' }}
-                onClick={() => setActiveTab('divisions')}
-              >
-                🛡️ 編組師團 ({activeDivisions.length})
-              </button>
-              <button
-                type="button"
-                className={activeTab === 'policies' ? 'btn-primary' : 'btn-secondary'}
-                style={{ padding: '0.5rem 1rem', fontSize: '0.9rem' }}
-                onClick={() => setActiveTab('policies')}
-              >
-                📜 國家政策
-              </button>
-              <button
-                type="button"
-                className={activeTab === 'workshop' ? 'btn-primary' : 'btn-secondary'}
-                style={{ padding: '0.5rem 1rem', fontSize: '0.9rem' }}
-                onClick={() => setActiveTab('workshop')}
-              >
-                ⚙️ 兵種工坊
-              </button>
-              <button
-                type="button"
-                className={activeTab === 'tech' ? 'btn-primary' : 'btn-secondary'}
-                style={{ padding: '0.5rem 1rem', fontSize: '0.9rem' }}
-                onClick={() => setActiveTab('tech')}
-              >
-                🔬 科技樹
-              </button>
-              <button
-                type="button"
-                className={activeTab === 'alliance' ? 'btn-primary' : 'btn-secondary'}
-                style={{ padding: '0.5rem 1rem', fontSize: '0.9rem' }}
-                onClick={() => setActiveTab('alliance')}
-              >
-                🤝 聯盟
-              </button>
+            {/* Main Operations: sidebar nav + routed sub-page content */}
+            <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '1rem' }}>
+              <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                {[
+                  { key: 'orders', label: '⚔️ 下達作戰指令' },
+                  { key: 'recruit', label: '🪣 招募兵力' },
+                  { key: 'divisions', label: `🛡️ 編組師團 (${activeDivisions.length})` },
+                  { key: 'policies', label: '📜 國家政策' },
+                  { key: 'workshop', label: '⚙️ 兵種工坊' },
+                  { key: 'tech', label: '🔬 科技樹' },
+                  { key: 'alliance', label: '🤝 聯盟' },
+                ].map((item) => (
+                  <NavLink
+                    key={item.key}
+                    to={item.key}
+                    style={({ isActive }) => ({
+                      display: 'block',
+                      padding: '0.55rem 0.75rem',
+                      borderRadius: '6px',
+                      fontSize: '0.85rem',
+                      fontWeight: isActive ? 700 : 500,
+                      textDecoration: 'none',
+                      color: isActive ? '#1a1a1a' : 'var(--text)',
+                      backgroundColor: isActive ? 'var(--accent-gold)' : 'var(--bg-tertiary)',
+                      border: `1px solid ${isActive ? 'var(--accent-gold)' : 'var(--border-color)'}`,
+                      transition: 'background-color 0.15s, color 0.15s',
+                    })}
+                  >
+                    {item.label}
+                  </NavLink>
+                ))}
+              </nav>
+
+              <div style={{ minWidth: 0 }}>
+                <ErrorBoundary>
+                  <Outlet />
+                </ErrorBoundary>
+              </div>
             </div>
-
-            {/* TAB 1: 作戰指令 */}
-            {activeTab === 'orders' && (
-              <ErrorBoundary>
-                <div className="card">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                    <h3 style={{ margin: 0 }}>下達作戰指令</h3>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}
-                        onClick={handleAiSuggest}
-                        disabled={aiSuggesting}
-                      >
-                        {aiSuggesting ? '⏳ 分析中...' : '🤖 自動決策'}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}
-                        onClick={handleClearForm}
-                      >
-                        🗑️ 清除指令
-                      </button>
-                    </div>
-                  </div>
-
-                  {state.myCountryId ? (
-                    <form onSubmit={handleSubmitOrder} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                      
-                      {/* Form Error Banner */}
-                      {formError && (
-                        <div style={{
-                          padding: '0.625rem 0.875rem',
-                          backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                          border: '1px solid #ef4444',
-                          borderRadius: '4px',
-                          color: '#f87171',
-                          fontSize: '0.875rem',
-                          fontWeight: 500,
-                        }}>
-                          ⚠️ {formError}
-                        </div>
-                      )}
-
-                      {/* Order Type + Details */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
-                            指令類型
-                          </label>
-                          <select
-                            className="input-field"
-                            value={orderType}
-                            onChange={(e) => {
-                              const newType = e.target.value as OrderType;
-                              setOrderType(newType);
-                              setFormError(null);
-                              if (newType === 'RECRUIT') {
-                                setActiveTab('recruit');
-                              }
-                            }}
-                          >
-                            {Object.entries(ORDER_TYPE_LABELS).map(([val, label]) => (
-                              <option key={val} value={val}>{label}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
-                            備註 / 戰術細節
-                          </label>
-                          <input
-                            type="text"
-                            className="input-field"
-                            placeholder="作戰說明..."
-                            value={details}
-                            onChange={(e) => setDetails(e.target.value)}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Territory Selectors (From & Target) */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                        {/* From Territory Display */}
-                        <div>
-                          <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
-                            出發地 {mapSelectMode === 'from' && <span style={{ color: 'var(--accent-gold)', fontSize: '0.75rem' }}>(點擊地圖選擇中...)</span>}
-                          </label>
-                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                            <div className="input-field" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-tertiary)', flex: 1, minHeight: '40px', overflow: 'hidden' }}>
-                              {fromTerritory ? (
-                                <>
-                                  <span>{getCountryFlag(fromTerritory)}</span>
-                                  <span style={{ fontWeight: 600 }}>{getCountryNameZh(fromTerritory)}</span>
-                                </>
-                              ) : (
-                                <span style={{ color: 'var(--text-muted)' }}>未設定</span>
-                              )}
-                            </div>
-                            <button
-                              type="button"
-                              className={mapSelectMode === 'from' ? 'btn-primary' : 'btn-secondary'}
-                              style={{ padding: '0.5rem 0.75rem', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
-                              onClick={() => setMapSelectMode('from')}
-                            >
-                              在地圖選取
-                            </button>
-                            {state?.myCountryId && fromTerritory !== state.myCountryId && (
-                              <button
-                                type="button"
-                                className="btn-secondary"
-                                style={{ padding: '0.5rem 0.6rem', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
-                                onClick={() => setFromTerritory(state.myCountryId!)}
-                                title="重設為我的國家"
-                              >
-                                母國
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Target Territory Display */}
-                        <div>
-                          <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
-                            目標 {mapSelectMode === 'target' && <span style={{ color: 'var(--accent-gold)', fontSize: '0.75rem' }}>(點擊地圖選擇中...)</span>}
-                            {orderType === 'ATTACK' && <span style={{ color: '#ef4444' }}> *進攻必填</span>}
-                          </label>
-                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                            <div className="input-field" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-tertiary)', flex: 1, minHeight: '40px', overflow: 'hidden' }}>
-                              {targetTerritory ? (
-                                <>
-                                  <span>{getCountryFlag(targetTerritory)}</span>
-                                  <span style={{ fontWeight: 600 }}>{getCountryNameZh(targetTerritory)}</span>
-                                </>
-                              ) : (
-                                <span style={{ color: 'var(--text-muted)' }}>請點選目標國家</span>
-                              )}
-                            </div>
-                            <button
-                              type="button"
-                              className={mapSelectMode === 'target' ? 'btn-primary' : 'btn-secondary'}
-                              style={{ padding: '0.5rem 0.75rem', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
-                              onClick={() => setMapSelectMode('target')}
-                            >
-                              在地圖選取
-                            </button>
-                            {targetTerritory && (
-                              <button
-                                type="button"
-                                className="btn-secondary"
-                                style={{ padding: '0.5rem 0.6rem', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
-                                onClick={() => setTargetTerritory('')}
-                              >
-                                清除
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Division Selection (for ATTACK / DEFEND / MOVE) */}
-                      {['ATTACK', 'DEFEND', 'MOVE'].includes(orderType) && (
-                        <div>
-                          <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
-                            選擇調動參戰師團 {selectedDivisionIds.length > 0 && `(已選取 ${selectedDivisionIds.length} 個師團)`}
-                          </label>
-
-                          {activeDivisions.length === 0 ? (
-                            <div style={{ padding: '0.875rem 1rem', backgroundColor: 'rgba(239, 68, 68, 0.12)', border: '1px solid #ef4444', borderRadius: '4px', color: '#f87171', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                              <span>⚠️ 您目前沒有可用的編組師團！請先前往「編組師團」頁面建立師團。</span>
-                              <button
-                                type="button"
-                                className="btn-primary"
-                                style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}
-                                onClick={() => setActiveTab('divisions')}
-                              >
-                                前往編組師團 →
-                              </button>
-                            </div>
-                          ) : (
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.625rem' }}>
-                              {activeDivisions.map((div) => {
-                                const isSelected = selectedDivisionIds.includes(div.id);
-                                const compSummary = div.composition?.map(c => `${c.nameZh || c.customUnitId}x${c.quantity}`).join(' ') || '';
-                                return (
-                                  <div
-                                    key={div.id}
-                                    onClick={() => toggleDivisionSelection(div.id)}
-                                    style={{
-                                      padding: '0.625rem 0.875rem',
-                                      borderRadius: '6px',
-                                      backgroundColor: isSelected ? 'rgba(201, 168, 107, 0.15)' : 'var(--bg-tertiary)',
-                                      border: `2px solid ${isSelected ? 'var(--accent-gold)' : 'var(--border-color)'}`,
-                                      cursor: 'pointer',
-                                      fontSize: '0.85rem',
-                                      display: 'flex',
-                                      flexDirection: 'column',
-                                      gap: '0.25rem',
-                                    }}
-                                  >
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                      <span style={{ fontWeight: 700, color: isSelected ? 'var(--accent-gold)' : 'var(--text)' }}>
-                                        {isSelected ? '☑ ' : '☐ '} {div.name}
-                                      </span>
-                                      <span style={{ fontSize: '0.75rem', color: '#4ade80' }}>
-                                        {div.totalUnits.toLocaleString()} 名
-                                      </span>
-                                    </div>
-                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                      {compSummary}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Order Cost & Preview */}
-                      <div style={{
-                        padding: '0.75rem 1rem',
-                        backgroundColor: 'var(--bg-primary)',
-                        borderLeft: '4px solid var(--accent-gold)',
-                        borderRadius: '4px',
-                        fontSize: '0.875rem',
-                      }}>
-                        <div style={{ fontWeight: 600, color: 'var(--accent-gold)', marginBottom: '0.25rem' }}>
-                          📋 指令預覽與摘要
-                        </div>
-                        <div style={{ color: 'var(--text-main)' }}>
-                          {['ATTACK', 'DEFEND', 'MOVE'].includes(orderType) && (
-                            <>
-                              派遣 <strong>{selectedDivisionNames.length > 0 ? selectedDivisionNames.join('、') : '未選擇師團'}</strong>{' '}
-                              ({orderType === 'ATTACK' ? '進攻' : orderType === 'DEFEND' ? '固守' : '移防'}{' '}
-                              <strong style={{ color: targetTerritory ? '#4ade80' : '#f87171' }}>
-                                {targetTerritory ? getCountryName(targetTerritory) : '(請點選目標國家)'}
-                              </strong>) → 共 <strong>{selectedTotalUnits.toLocaleString()}</strong> 名兵力
-                            </>
-                          )}
-                          {orderType === 'FORTIFY' && (
-                            <>修築防禦工事 → 花費 <strong style={{ color: '#c9a86b' }}>20 黃金</strong> (提升據點防禦等級)</>
-                          )}
-                          {orderType === 'DIPLOMACY' && (
-                            <>向 <strong>{targetTerritory ? getCountryName(targetTerritory) : '(請點選目標國家)'}</strong> 發起外交協定/戰術提案</>
-                          )}
-                          {orderType === 'RECRUIT' && (
-                            <>請前往「招募兵力」頁面進行部隊動員招募。</>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div style={{ display: 'flex', gap: '1rem' }}>
-                        <button
-                          type="submit"
-                          className="btn-primary"
-                          disabled={resolving || (['ATTACK', 'DEFEND', 'MOVE'].includes(orderType) && (activeDivisions.length === 0 || selectedDivisionIds.length === 0))}
-                          style={{ flex: 1, justifyContent: 'center' }}
-                        >
-                          {resolving ? '結算中...' : '送出指令'}
-                        </button>
-                        <button type="button" className="btn-secondary" onClick={handleReady} disabled={resolving}>
-                          ✓ 本回合就緒
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <p style={{ color: 'var(--text-muted)' }}>你尚未加入此戰局。</p>
-                  )}
-                </div>
-              </ErrorBoundary>
-            )}
-
-            {/* TAB 2: 招募兵力 */}
-            {activeTab === 'recruit' && (
-              <ErrorBoundary>
-                <RecruitPanel
-                  militaryState={militaryState}
-                  onRefresh={fetchMilitaryState}
-                />
-              </ErrorBoundary>
-            )}
-
-            {/* TAB 3: 編組師團 */}
-            {activeTab === 'divisions' && (
-              <ErrorBoundary>
-                <DivisionPanel
-                  militaryState={militaryState}
-                  onRefresh={fetchMilitaryState}
-                  onSwitchTab={(tab) => setActiveTab(tab as TabType)}
-                />
-              </ErrorBoundary>
-            )}
-
-            {/* TAB 4: 國家政策 */}
-            {activeTab === 'policies' && (
-              <ErrorBoundary>
-                <PolicyPanel
-                  currentTurn={state.game.currentTurn}
-                  refreshTrigger={notificationTrigger}
-                />
-              </ErrorBoundary>
-            )}
-
-            {/* TAB 5: 兵種工坊 */}
-            {activeTab === 'workshop' && (
-              <ErrorBoundary>
-                <div className="card">
-                  <h3 style={{ marginBottom: '0.5rem' }}>⚔️ 兵種設計工坊</h3>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
-                    輸入提示詞讓 AI 為你設計獨特兵種（每類最多 5 種）
-                  </p>
-                  <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
-                    <select
-                      value={unitDesignCategory}
-                      onChange={(e) => setUnitDesignCategory(e.target.value)}
-                      style={{ padding: '0.35rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg)', color: 'var(--text)', fontSize: '0.8rem' }}
-                    >
-                      {CATEGORIES.map((c) => {
-                        const count = myUnits.filter((u) => u.category === c).length;
-                        return <option key={c} value={c}>{CATEGORY_LABELS[c]}（{count}/5）</option>;
-                      })}
-                    </select>
-                    <input
-                      type="text"
-                      placeholder="例：壕溝突擊隊，配備刺刀和手榴彈"
-                      value={unitDesignPrompt}
-                      onChange={(e) => setUnitDesignPrompt(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' && !unitDesigning) handleDesignUnit(); }}
-                      style={{ flex: 1, minWidth: '120px', padding: '0.35rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg)', color: 'var(--text)', fontSize: '0.8rem' }}
-                    />
-                    <button onClick={handleDesignUnit} disabled={unitDesigning || !unitDesignPrompt.trim()} className="btn-primary" style={{ padding: '0.35rem 0.8rem', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
-                      {unitDesigning ? '⏳...' : '設計'}
-                    </button>
-                  </div>
-                  {unitError && <p style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '0.25rem' }}>✗ {unitError}</p>}
-                  {unitSuccess && <p style={{ color: '#22c55e', fontSize: '0.75rem', marginTop: '0.25rem' }}>{unitSuccess}</p>}
-                  {myUnits.length > 0 && (
-                    <div style={{ marginTop: '0.5rem', maxHeight: '300px', overflowY: 'auto' }}>
-                      {myUnits.map((u) => (
-                        <div key={u.id} style={{ padding: '0.4rem 0.5rem', borderBottom: '1px solid var(--bg-tertiary)', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <div style={{ flex: 1 }}>
-                            <span style={{ fontWeight: 600 }}>{CATEGORY_LABELS[u.category] || u.category}: {u.nameZh}</span>
-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
-                              攻:{u.attack} 防:{u.defense} 速:{u.speed} 成本:(金{u.costGold}/人{u.costManpower}/工{u.costIndustry})
-                            </span>
-                          </div>
-                          <button onClick={() => handleDeleteUnit(u.id)} className="btn-secondary" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem', color: '#ef4444' }}>刪除</button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </ErrorBoundary>
-            )}
-
-            {/* TAB 6: 科技樹 */}
-            {activeTab === 'tech' && gameId && (
-              <ErrorBoundary>
-                <div className="card">
-                  <TechTreePanel gameId={gameId || ''} refreshTrigger={notificationTrigger} />
-                </div>
-              </ErrorBoundary>
-            )}
-
-            {/* TAB 7: 聯盟 */}
-            {activeTab === 'alliance' && gameId && (
-              <ErrorBoundary>
-                <div className="card">
-                  <AlliancePanel gameId={gameId} myCountryId={state?.myCountryId || ''} refreshTrigger={notificationTrigger} />
-                </div>
-              </ErrorBoundary>
-            )}
 
             {/* My Orders This Turn */}
             {myOrders.length > 0 && (
@@ -1485,6 +1115,7 @@ const Game: React.FC = () => {
         </div>
       )}
     </div>
+    </GameContext.Provider>
   );
 };
 

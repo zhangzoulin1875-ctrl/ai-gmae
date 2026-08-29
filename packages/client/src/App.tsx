@@ -6,6 +6,14 @@ import Game from './pages/Game';
 import Admin from './pages/Admin';
 import ErrorBoundary from './components/ErrorBoundary';
 
+import OrdersPage from './pages/game/OrdersPage';
+import RecruitPage from './pages/game/RecruitPage';
+import DivisionsPage from './pages/game/DivisionsPage';
+import PoliciesPage from './pages/game/PoliciesPage';
+import WorkshopPage from './pages/game/WorkshopPage';
+import TechPage from './pages/game/TechPage';
+import AlliancePage from './pages/game/AlliancePage';
+
 const App: React.FC = () => {
   return (
     <ErrorBoundary
@@ -24,7 +32,16 @@ const App: React.FC = () => {
           <Routes>
             <Route path="/" element={<Login />} />
             <Route path="/lobby" element={<Lobby />} />
-            <Route path="/game/:id" element={<Game />} />
+            <Route path="/game/:id" element={<Game />}>
+              <Route index element={<Navigate to="orders" replace />} />
+              <Route path="orders" element={<OrdersPage />} />
+              <Route path="recruit" element={<RecruitPage />} />
+              <Route path="divisions" element={<DivisionsPage />} />
+              <Route path="policies" element={<PoliciesPage />} />
+              <Route path="workshop" element={<WorkshopPage />} />
+              <Route path="tech" element={<TechPage />} />
+              <Route path="alliance" element={<AlliancePage />} />
+            </Route>
             <Route path="/admin" element={<Admin />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
