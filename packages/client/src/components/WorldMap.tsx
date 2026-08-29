@@ -4,7 +4,7 @@ import type { CountryDefinition } from '@wwi/shared';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-const GEOJSON_URL = '/maps/provinces-1914.geojson';
+const DEFAULT_GEOJSON_URL = '/maps/provinces-1914.geojson';
 
 const OCEAN_COLOR = '#0a2340';
 const UNCLAIMED_COLOR = '#6b6358'; // medium warm gray — clearly distinct from ocean
@@ -62,6 +62,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
     : [10, 25];
   const mapZoom = mapBounds ? 2.5 : 1.2;
   const provinceOverrides = scenario?.provinceOverrides;
+  const geojsonUrl = scenario?.geojsonUrl || DEFAULT_GEOJSON_URL;
 
   // Build MapLibre "match" expression: wwi country id -> hex color
   // Taken countries are dimmed (50% darker)
@@ -153,7 +154,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
         // internal `_data` for a URL-based geojson source is only populated
         // asynchronously inside its worker — reading it right after
         // addSource() is a race condition and can be non-iterable.)
-        const geojsonRes = await fetch(GEOJSON_URL);
+        const geojsonRes = await fetch(geojsonUrl);
         const geojson = await geojsonRes.json();
 
         // Apply province-level overrides from scenario (e.g. warlord China split)
