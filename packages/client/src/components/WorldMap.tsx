@@ -361,6 +361,45 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
     map.setPaintProperty('province-fill', 'fill-color', colorExpression);
   }, [colorExpression, mapReady]);
 
+  // ── Re-apply territory mappings when scenario loads (after init) ──
+  // The map init effect captures territoryMap/provinceOverrides from the
+  // first render. If scenarioId wasn't available yet (e.g. game state still
+  // loading), those values were undefined and no mappings were applied.
+  // This effect re-applies them once the scenario becomes available.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !map.getSource('provinces')) return;
+    if (!territoryMap && !provinceOverrides) return;
+
+    const source = map.getSource('provinces');
+    if (!source || !source._data || !Array.isArray(source._data?.features)) return;
+
+    let modified = 0;
+    for (const feat of source._data.features) {
+      if (territoryMap && feat.properties?.iso2) {
+        const mapped = territoryMap[feat.properties.iso2];
+        if (mapped && feat.properties.wwi !== mapped) {
+          feat.properties.wwi = mapped;
+          modified++;
+        }
+      }
+      const featId = feat.properties?.id ?? feat.id;
+      if (provinceOverrides && featId && provinceOverrides[featId]) {
+        feat.properties.wwi = provinceOverrides[featId];
+        modified++;
+      }
+    }
+
+    if (modified > 0) {
+      console.log(`[WorldMap] Re-applied territory mappings to ${modified} features`);
+      source.setData(source._data);
+      // Also re-apply color expression to be safe
+      if (map.getLayer('province-fill')) {
+        map.setPaintProperty('province-fill', 'fill-color', colorExpression);
+      }
+    }
+  }, [territoryMap, provinceOverrides, mapReady, colorExpression]);
+
   // ── Update selected border filter ─────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
