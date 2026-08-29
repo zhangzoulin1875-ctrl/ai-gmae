@@ -8,7 +8,7 @@
  * Nodes with unlocksRename=true show a rename input after unlock.
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { apiFetch, getApiUrl } from '../lib/api';
+import { apiFetch } from '../lib/api';
 
 interface TechNodeInfo {
   id: string;
@@ -70,7 +70,7 @@ const TechTreePanel: React.FC<{ gameId: string; refreshTrigger: number }> = ({ g
 
   const fetchTech = useCallback(async () => {
     try {
-      const res = await apiFetch(getApiUrl(`/api/games/${gameId}/tech`));
+      const res = await apiFetch(`/api/games/${gameId}/tech`);
       if (res.ok) {
         const d = await res.json();
         setData(d);
@@ -93,7 +93,7 @@ const TechTreePanel: React.FC<{ gameId: string; refreshTrigger: number }> = ({ g
     setBusy(nodeId);
     setError(null);
     try {
-      const res = await apiFetch(getApiUrl(`/api/games/${gameId}/tech/${nodeId}`), { method: 'POST' });
+      const res = await apiFetch(`/api/games/${gameId}/tech/${nodeId}`, { method: 'POST' });
       const d = await res.json();
       if (res.ok) {
         await fetchTech();
@@ -112,9 +112,8 @@ const TechTreePanel: React.FC<{ gameId: string; refreshTrigger: number }> = ({ g
     setRenameError(null);
     setRenameSuccess(null);
     try {
-      const res = await apiFetch(getApiUrl(`/api/games/${gameId}/rename`), {
+      const res = await apiFetch(`/api/games/${gameId}/rename`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName }),
       });
       const d = await res.json();
