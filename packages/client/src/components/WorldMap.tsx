@@ -22,9 +22,10 @@ interface WorldMapProps {
   countries: CountryDefinition[];
   selectedCountryId?: string | null;
   onSelectCountry?: (country: CountryDefinition | null) => void;
+  mapSelectMode?: 'target' | 'from';
 }
 
-const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSelectCountry }) => {
+const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSelectCountry, mapSelectMode }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const hoveredIdRef = useRef<string | number | null>(null);
@@ -91,12 +92,6 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
         zoom: 1.2,
         minZoom: 0.5,
         maxZoom: 8,
-        // NOTE: maxBounds removed — when the container has zero size at
-        // construction time (before layout settles), MapLibre's bounds-fit
-        // math divides by a ~0 viewport and clamps zoom to its default max
-        // (22) while snapping center to the bound edge (lng 180). That is
-        // exactly the corrupted camera we kept seeing. minZoom/maxZoom give
-        // similar UX protection without that failure mode.
         attributionControl: false,
         dragRotate: false,
         pitchWithRotate: false,
@@ -118,10 +113,6 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
 
     map.on('load', () => {
       try {
-        // Force the correct camera position — if the container had zero
-        // size at construction time, MapLibre's internal transform can
-        // end up corrupted (we saw zoom snap to 22 / center to the map
-        // edge). jumpTo() forces a clean, correct camera regardless.
         map.resize();
         map.jumpTo({ center: [10, 25], zoom: 1.2 });
 
@@ -260,8 +251,6 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
 
     mapRef.current = map;
 
-    // Keep the canvas correctly sized if the container's dimensions
-    // change after mount (flex/grid layouts often settle a frame late).
     const resizeObserver = new ResizeObserver(() => {
       try {
         map.resize();
@@ -313,63 +302,71 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
         height: '600px',
         borderRadius: '6px',
         overflow: 'hidden',
-        border: '1px solid var(--border-color)',
+        background: OCEAN_COLOR,
       }}
     >
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
+      {/* Map Error Banner */}
       {mapError && (
         <div
           style={{
             position: 'absolute',
             inset: 0,
+            background: 'rgba(15,20,25,0.92)',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '0.5rem',
-            background: 'rgba(10,14,20,0.95)',
-            color: 'var(--text-muted)',
+            padding: '2rem',
             textAlign: 'center',
-            padding: '1.5rem',
-            fontSize: '0.85rem',
-            whiteSpace: 'pre-wrap',
-            overflow: 'auto',
+            zIndex: 100,
           }}
         >
-          <p style={{ color: '#ef4444', fontWeight: 600 }}>⚠️ 地圖無法載入</p>
-          <pre style={{ fontSize: '0.75rem', textAlign: 'left', maxWidth: '100%', overflow: 'auto' }}>
+          <div style={{ color: '#ef4444', fontSize: '1.2rem', fontWeight: 700, marginBottom: '0.75rem' }}>
+            地圖載入失敗
+          </div>
+          <pre
+            style={{
+              color: 'var(--text-muted)',
+              fontSize: '0.8rem',
+              maxWidth: '90%',
+              maxHeight: '200px',
+              overflow: 'auto',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              background: 'rgba(0,0,0,0.5)',
+              padding: '1rem',
+              borderRadius: '4px',
+            }}
+          >
             {mapError}
           </pre>
         </div>
       )}
 
-      {/* Vignette */}
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          pointerEvents: 'none',
-          boxShadow: 'inset 0 0 120px 40px rgba(0,0,0,0.5)',
-        }}
-      />
-
-      {/* Selected country badge */}
+      {/* Selected Country Banner */}
       {selectedCountry && !mapError && (
         <div
           style={{
             position: 'absolute',
             top: '0.6rem',
             left: '0.6rem',
-            background: 'rgba(10,14,20,0.85)',
+            background: 'rgba(10,14,20,0.88)',
             border: `1px solid ${SELECTED_BORDER_COLOR}`,
             borderRadius: '4px',
             padding: '0.4rem 0.8rem',
             fontSize: '0.85rem',
             color: '#fff',
+            zIndex: 10,
           }}
         >
           已選取: {selectedCountry.flagIcon} {selectedCountry.nameZh}
+          {mapSelectMode && (
+            <span style={{ color: 'var(--accent-gold)', marginLeft: '0.5rem', fontSize: '0.75rem' }}>
+              ({mapSelectMode === 'from' ? '點選設為出發地' : '點選設為目標'})
+            </span>
+          )}
         </div>
       )}
 
@@ -394,7 +391,6 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
           {tooltip.text}
         </div>
       )}
-
 
       {/* Hint */}
       {!mapError && (

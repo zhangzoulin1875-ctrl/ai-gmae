@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import type { Server as SocketIOServer } from 'socket.io';
 import { prisma } from '../lib/prisma.js';
 import { TurnResolver } from './turn-resolver.js';
+import { AIPlayerService } from './ai-player.js';
 
 /**
  * Turn Scheduler
@@ -13,6 +14,7 @@ import { TurnResolver } from './turn-resolver.js';
 export class TurnScheduler {
   private io: SocketIOServer;
   private isRunning = false;
+  private aiPlayerService = new AIPlayerService();
 
   constructor(io: SocketIOServer) {
     this.io = io;
@@ -76,6 +78,11 @@ export class TurnScheduler {
 
       for (const game of activeGames) {
         try {
+          // 1. Generate AI orders BEFORE resolution for countries with isAIControlled === true in the latest CountryState
+          console.log(`[Scheduler] Generating AI player orders for game ${game.id} turn ${game.currentTurn}...`);
+          await this.aiPlayerService.generateOrdersForGame(game.id, game.currentTurn);
+
+          // 2. Resolve the turn
           const result = await resolver.resolveTurn(game.id);
 
           // Broadcast to all clients in this game's room

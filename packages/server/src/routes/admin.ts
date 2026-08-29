@@ -194,8 +194,14 @@ router.post('/games/:gameId/remove-ai', adminAuth, async (req, res) => {
 
 // Force resolve turn
 router.post('/games/:gameId/force-turn', adminAuth, async (req, res) => {
-  const { gameId } = req.params;
-  res.json({ success: true, message: `Turn force-resolved for game ${gameId}` });
+  try {
+    const resolver = new TurnResolver();
+    const result = await resolver.resolveTurn(req.params.gameId);
+    res.json(result);
+  } catch (error: any) {
+    console.error('[Admin] force-turn error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Manual turn resolution (for testing)
@@ -249,3 +255,150 @@ function getDefaultConfig(): AIConfig {
 }
 
 export default router;
+
+// === Dashboard Stats ===
+router.get('/stats', adminAuth, async (_req, res) => {
+  try {
+    const [totalGames, activeGames, totalPlayers, aiPlayers, totalOrders, totalResolutions] = await Promise.all([
+      prisma.gameRoom.count(),
+      prisma.gameRoom.count({ where: { status: 'ACTIVE' } }),
+      prisma.player.count(),
+      prisma.player.count({ where: { isAI: true } }),
+      prisma.order.count(),
+      prisma.turnResolution.count(),
+    ]);
+
+    const aiApiCalls = await prisma.turnResolution.count({
+      where: { resolvedByProvider: { not: 'deterministic-fallback' } },
+    });
+
+    const latestGame = await prisma.gameRoom.findFirst({
+      orderBy: { createdAt: 'desc' },
+      include: { players: true },
+    });
+
+    res.json({
+      totalGames,
+      activeGames,
+      totalPlayers,
+      aiCountries: aiPlayers,
+      totalOrders,
+      totalResolutions,
+      aiApiCalls,
+      latestGame: latestGame ? {
+        id: latestGame.id,
+        name: latestGame.name,
+        status: latestGame.status,
+        currentTurn: latestGame.currentTurn,
+        playerCount: latestGame.players.length,
+      } : null,
+    });
+  } catch (error: any) {
+    console.error('[Admin] stats error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// === Player Management ===
+router.get('/players', adminAuth, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 50, 500);
+    const skip = Number(req.query.skip) || 0;
+    const search = req.query.search as string | undefined;
+    const filterAI = req.query.isAI as string | undefined;
+    const filterGameId = req.query.gameId as string | undefined;
+
+    const where: any = {};
+    if (filterAI === 'true') where.isAI = true;
+    if (filterAI === 'false') where.isAI = false;
+    if (filterGameId) where.gameId = filterGameId;
+    if (search) {
+      where.user = { username: { contains: search, mode: 'insensitive' } };
+    }
+
+    const players = await prisma.player.findMany({
+      where,
+      include: { user: true, game: true },
+      orderBy: { joinedAt: 'desc' },
+      take: limit,
+      skip,
+    });
+
+    const total = await prisma.player.count({ where });
+
+    res.json({
+      players: players.map((p) => ({
+        id: p.id,
+        username: p.user.username,
+        discordId: p.user.discordId,
+        avatar: p.user.avatar,
+        countryId: p.countryId,
+        gameId: p.gameId,
+        gameName: p.game?.name || '',
+        isAI: p.isAI,
+        isReady: p.isReady,
+        joinedAt: p.joinedAt,
+      })),
+      total,
+    });
+  } catch (error: any) {
+    console.error('[Admin] players error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// === AI Unassign ===
+router.post('/games/:gameId/unassign-ai', adminAuth, async (req, res) => {
+  try {
+    const { gameId } = req.params;
+    const { countryId } = req.body;
+    if (!countryId) return res.status(400).json({ error: '必須指定國家' });
+
+    await prisma.player.deleteMany({
+      where: { gameId, countryId, isAI: true },
+    });
+
+    const latestTurn = await prisma.gameRoom.findUnique({ where: { id: gameId } });
+    if (latestTurn) {
+      await prisma.countryState.updateMany({
+        where: { gameId, countryId, turn: latestTurn.currentTurn },
+        data: { isAIControlled: false },
+      });
+    }
+
+    res.json({ success: true, message: `已撤除 ${countryId} 的 AI 控制` });
+  } catch (error: any) {
+    console.error('[Admin] unassign-ai error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// === Get country control status for a game ===
+router.get('/games/:gameId/countries', adminAuth, async (req, res) => {
+  try {
+    const { gameId } = req.params;
+    const game = await prisma.gameRoom.findUnique({
+      where: { id: gameId },
+      include: { players: { include: { user: true } } },
+    });
+    if (!game) return res.status(404).json({ error: '找不到戰局' });
+
+    const countries = WWI_COUNTRIES.map((c) => {
+      const player = game.players.find((p) => p.countryId === c.id);
+      return {
+        countryId: c.id,
+        nameZh: c.nameZh,
+        flagIcon: c.flagIcon,
+        side: c.side,
+        controller: player
+          ? { type: player.isAI ? 'ai' : 'human', username: player.user.username, isReady: player.isReady }
+          : { type: 'empty' },
+      };
+    });
+
+    res.json({ countries, totalCountries: countries.length });
+  } catch (error: any) {
+    console.error('[Admin] countries error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});

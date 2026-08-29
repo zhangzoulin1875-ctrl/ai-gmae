@@ -11,7 +11,7 @@ const Admin: React.FC = () => {
   // Config state
   const [config, setConfig] = useState<AdminConfig | null>(null);
   const [providers, setProviders] = useState<AIProvider[]>([]);
-  const [tab, setTab] = useState<'dashboard' | 'ai' | 'games' | 'players'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'ai' | 'games' | 'players' | 'aicountries'>('dashboard');
   const [testingProvider, setTestingProvider] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<Record<string, string>>({});
 
@@ -20,6 +20,12 @@ const Admin: React.FC = () => {
   const [newGameName, setNewGameName] = useState('');
   const [gameActionLoading, setGameActionLoading] = useState(false);
   const [gameError, setGameError] = useState('');
+  const [stats, setStats] = useState<any>(null);
+  const [playerList, setPlayerList] = useState<any[]>([]);
+  const [playerTotal, setPlayerTotal] = useState(0);
+  const [playerSkip, setPlayerSkip] = useState(0);
+  const [aiCountries, setAiCountries] = useState<any[]>([]);
+  const [aiCountryLoading, setAiCountryLoading] = useState<string | null>(null);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,6 +83,85 @@ const Admin: React.FC = () => {
       console.error('載入戰局清單失敗');
     }
   };
+
+  const loadStats = async () => {
+    const token = localStorage.getItem('adminToken');
+    try {
+      const res = await fetch(getApiUrl('/api/admin/stats'), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) { const data = await res.json(); setStats(data); }
+    } catch { /* ignore */ }
+  };
+
+  const loadPlayers = async (skipVal = 0) => {
+    const token = localStorage.getItem('adminToken');
+    try {
+      const res = await fetch(getApiUrl(`/api/admin/players?limit=50&skip=${skipVal}`), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPlayerList(data.players || []);
+        setPlayerTotal(data.total || 0);
+      }
+    } catch { /* ignore */ }
+  };
+
+  const loadAICountries = async () => {
+    const token = localStorage.getItem('adminToken');
+    const activeGame = games.find((g) => g.status === 'WAITING' || g.status === 'ACTIVE');
+    if (!activeGame) { setAiCountries([]); return; }
+    try {
+      const res = await fetch(getApiUrl(`/api/admin/games/${activeGame.id}/countries`), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) { const data = await res.json(); setAiCountries(data.countries || []); }
+    } catch { /* ignore */ }
+  };
+
+  const handleAssignAI = async (gameId: string, countryId: string) => {
+    const token = localStorage.getItem('adminToken');
+    if (!token) return;
+    setAiCountryLoading(countryId);
+    try {
+      const res = await fetch(getApiUrl(`/api/admin/games/${gameId}/assign-ai`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ countryId }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setGameError(data.error || '操作失敗'); }
+      else { await loadAICountries(); }
+    } catch { setGameError('連線失敗'); }
+    finally { setAiCountryLoading(null); }
+  };
+
+  const handleUnassignAI = async (gameId: string, countryId: string) => {
+    const token = localStorage.getItem('adminToken');
+    if (!token) return;
+    setAiCountryLoading(countryId);
+    try {
+      const res = await fetch(getApiUrl(`/api/admin/games/${gameId}/unassign-ai`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ countryId }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setGameError(data.error || '操作失敗'); }
+      else { await loadAICountries(); }
+    } catch { setGameError('連線失敗'); }
+    finally { setAiCountryLoading(null); }
+  };
+
+  // Load data when tab changes
+  useEffect(() => {
+    if (!authed) return;
+    if (tab === 'dashboard') loadStats();
+    if (tab === 'players') loadPlayers(playerSkip);
+    if (tab === 'aicountries') loadAICountries();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed, tab]);
 
   const createGame = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -338,6 +423,7 @@ const Admin: React.FC = () => {
     { key: 'dashboard' as const, label: '📊 儀表板' },
     { key: 'ai' as const, label: '🤖 AI 設定' },
     { key: 'games' as const, label: '🎮 戰局管理' },
+    { key: 'aicountries' as const, label: '♟️ AI 國家管理' },
     { key: 'players' as const, label: '👥 玩家管理' },
   ];
 
@@ -405,23 +491,45 @@ const Admin: React.FC = () => {
 
       {/* Dashboard Tab */}
       {tab === 'dashboard' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-          <div className="card">
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>進行中戰局</p>
-            <p style={{ fontSize: '2rem', fontWeight: 700 }}>{games.filter((g) => g.status === 'WAITING' || g.status === 'ACTIVE').length}</p>
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+            <div className="card">
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>總戰局數</p>
+              <p style={{ fontSize: '2rem', fontWeight: 700 }}>{stats?.totalGames ?? '—'}</p>
+            </div>
+            <div className="card">
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>進行中戰局</p>
+              <p style={{ fontSize: '2rem', fontWeight: 700 }}>{stats?.activeGames ?? '—'}</p>
+            </div>
+            <div className="card">
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>總玩家數</p>
+              <p style={{ fontSize: '2rem', fontWeight: 700 }}>{stats?.totalPlayers ?? '—'}</p>
+            </div>
+            <div className="card">
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>AI 控制國家</p>
+              <p style={{ fontSize: '2rem', fontWeight: 700 }}>{stats?.aiCountries ?? '—'}</p>
+            </div>
+            <div className="card">
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>總指令數</p>
+              <p style={{ fontSize: '2rem', fontWeight: 700 }}>{stats?.totalOrders ?? '—'}</p>
+            </div>
+            <div className="card">
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>回合結算次數</p>
+              <p style={{ fontSize: '2rem', fontWeight: 700 }}>{stats?.totalResolutions ?? '—'}</p>
+            </div>
+            <div className="card">
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>AI API 呼叫次數</p>
+              <p style={{ fontSize: '2rem', fontWeight: 700 }}>{stats?.aiApiCalls ?? '—'}</p>
+            </div>
           </div>
-          <div className="card">
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>在線玩家</p>
-            <p style={{ fontSize: '2rem', fontWeight: 700 }}>—</p>
-          </div>
-          <div className="card">
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>今日 API 呼叫次數</p>
-            <p style={{ fontSize: '2rem', fontWeight: 700 }}>—</p>
-          </div>
-          <div className="card">
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>下次回合結算</p>
-            <p style={{ fontSize: '1.5rem', fontWeight: 700 }}>—</p>
-          </div>
+          {stats?.latestGame && (
+            <div className="card">
+              <h3 style={{ marginBottom: '0.5rem' }}>最新戰局</h3>
+              <p style={{ color: 'var(--text-muted)' }}>
+                {stats.latestGame.name} — 回合 {stats.latestGame.currentTurn} — {stats.latestGame.playerCount} 名玩家
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -686,10 +794,113 @@ const Admin: React.FC = () => {
       })()}
 
       {/* Players Tab */}
+      {/* AI Country Management Tab */}
+      {tab === 'aicountries' && (
+        <div>
+          <h3 style={{ marginBottom: '1rem' }}>♟️ AI 國家管理</h3>
+          {!games.find((g) => g.status === 'WAITING' || g.status === 'ACTIVE') ? (
+            <div className="card"><p style={{ color: 'var(--text-muted)' }}>目前沒有進行中的戰局</p></div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.75rem' }}>
+              {aiCountries.map((c) => {
+                const activeGame = games.find((g) => g.status === 'WAITING' || g.status === 'ACTIVE');
+                return (
+                  <div key={c.countryId} className="card" style={{ padding: '0.75rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <span style={{ fontSize: '1.2rem' }}>{c.flagIcon}</span>
+                        <span style={{ marginLeft: '0.5rem', fontWeight: 600 }}>{c.nameZh}</span>
+                      </div>
+                      <div style={{ fontSize: '0.8rem' }}>
+                        {c.controller.type === 'human' && (
+                          <span style={{ color: '#3b82f6' }}>👤 {c.controller.username}</span>
+                        )}
+                        {c.controller.type === 'ai' && (
+                          <span style={{ color: '#22c55e' }}>🤖 AI</span>
+                        )}
+                        {c.controller.type === 'empty' && (
+                          <span style={{ color: 'var(--text-muted)' }}>— 空位</span>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ marginTop: '0.5rem' }}>
+                      {c.controller.type === 'empty' && activeGame && (
+                        <button
+                          onClick={() => handleAssignAI(activeGame.id, c.countryId)}
+                          disabled={aiCountryLoading === c.countryId}
+                          className="btn-primary"
+                          style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}
+                        >
+                          {aiCountryLoading === c.countryId ? '...' : '指派 AI'}
+                        </button>
+                      )}
+                      {c.controller.type === 'ai' && activeGame && (
+                        <button
+                          onClick={() => handleUnassignAI(activeGame.id, c.countryId)}
+                          disabled={aiCountryLoading === c.countryId}
+                          className="btn-secondary"
+                          style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}
+                        >
+                          {aiCountryLoading === c.countryId ? '...' : '撤除 AI'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Players Tab */}
       {tab === 'players' && (
-        <div className="card">
-          <h3>玩家管理</h3>
-          <p style={{ color: 'var(--text-muted)' }}>玩家資料載入中...</p>
+        <div>
+          <h3 style={{ marginBottom: '1rem' }}>👥 玩家管理 (共 {playerTotal} 人)</h3>
+          {playerList.length === 0 ? (
+            <div className="card"><p style={{ color: 'var(--text-muted)' }}>尚無玩家資料</p></div>
+          ) : (
+            <div className="card" style={{ overflow: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
+                    <th style={{ padding: '0.5rem' }}>玩家</th>
+                    <th style={{ padding: '0.5rem' }}>國家</th>
+                    <th style={{ padding: '0.5rem' }}>戰局</th>
+                    <th style={{ padding: '0.5rem' }}>類型</th>
+                    <th style={{ padding: '0.5rem' }}>就緒</th>
+                    <th style={{ padding: '0.5rem' }}>加入時間</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {playerList.map((p) => (
+                    <tr key={p.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                      <td style={{ padding: '0.5rem' }}>{p.username}</td>
+                      <td style={{ padding: '0.5rem' }}>{p.countryId}</td>
+                      <td style={{ padding: '0.5rem' }}>{p.gameName}</td>
+                      <td style={{ padding: '0.5rem' }}>
+                        {p.isAI ? <span style={{ color: '#22c55e' }}>🤖 AI</span> : <span style={{ color: '#3b82f6' }}>👤 玩家</span>}
+                      </td>
+                      <td style={{ padding: '0.5rem' }}>{p.isReady ? '✓' : '—'}</td>
+                      <td style={{ padding: '0.5rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                        {new Date(p.joinedAt).toLocaleString('zh-TW')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {playerSkip > 0 && (
+                <button onClick={() => setPlayerSkip(Math.max(0, playerSkip - 50))} className="btn-secondary" style={{ marginTop: '1rem', marginRight: '0.5rem' }}>
+                  ← 上一頁
+                </button>
+              )}
+              {playerSkip + 50 < playerTotal && (
+                <button onClick={() => setPlayerSkip(playerSkip + 50)} className="btn-secondary" style={{ marginTop: '1rem' }}>
+                  下一頁 →
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
