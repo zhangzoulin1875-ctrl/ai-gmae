@@ -1,0 +1,123 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String   @id @default(uuid())
+  discordId      String?  @unique
+  username       String
+  avatar         String?
+  isAdmin        Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  players        Player[]
+}
+
+model GameRoom {
+  id              String        @id @default(uuid())
+  name            String
+  status          String        @default("WAITING")
+  currentTurn     Int           @default(0)
+  turnIntervalHrs Int           @default(2)
+  lastTurnAt      DateTime?
+  nextTurnAt      DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  players         Player[]
+  orders          Order[]
+  resolutions     TurnResolution[]
+  countryStates   CountryState[]
+}
+
+model Player {
+  id            String   @id @default(uuid())
+  userId        String
+  gameId        String
+  countryId    String
+  isReady      Boolean  @default(false)
+  isAI         Boolean  @default(false)
+  aiPersonality String?
+  status        String   @default("ACTIVE")
+  joinedAt      DateTime @default(now())
+  user          User       @relation(fields: [userId], references: [id])
+  game          GameRoom   @relation(fields: [gameId], references: [id])
+
+  @@unique([gameId, countryId])
+}
+
+model CountryState {
+  id            String   @id @default(uuid())
+  gameId        String
+  countryId     String
+  turn          Int
+  infantry      Int      @default(0)
+  artillery     Int      @default(0)
+  cavalry       Int      @default(0)
+  morale        Int      @default(50)
+  gold          Int      @default(100)
+  industry      Int      @default(10)
+  manpower      Int      @default(1000)
+  stability      Int      @default(50)
+  territories   String[]
+  isAIControlled Boolean @default(false)
+  playerId      String?
+  createdAt     DateTime @default(now())
+  game          GameRoom @relation(fields: [gameId], references: [id])
+
+  @@unique([gameId, countryId, turn])
+}
+
+model Order {
+  id              String   @id @default(uuid())
+  gameId          String
+  playerId        String
+  countryId       String
+  turn            Int
+  type            String
+  fromTerritoryId String?
+  targetTerritoryId String?
+  infantry        Int?
+  artillery       Int?
+  cavalry         Int?
+  details         String?
+  status          String   @default("PENDING")
+  isAIOrder       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  game            GameRoom @relation(fields: [gameId], references: [id])
+}
+
+model TurnResolution {
+  id              String   @id @default(uuid())
+  gameId          String
+  turn            Int
+  resolvedAt      DateTime @default(now())
+  narrative       String
+  resolvedByProvider String
+  executionTimeMs Int
+  apiTokensUsed   Int      @default(0)
+  game            GameRoom @relation(fields: [gameId], references: [id])
+
+  @@unique([gameId, turn])
+}
+
+model AIProviderConfig {
+  id            String   @id @default(uuid())
+  name          String
+  type          String
+  apiKeyEnc     String?
+  endpoint      String?
+  model         String
+  priority      Int
+  isEnabled     Boolean  @default(true)
+  timeoutMs     Int      @default(30000)
+  maxRetries    Int      @default(2)
+  temperature   Float    @default(0.7)
+  systemPrompt  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
