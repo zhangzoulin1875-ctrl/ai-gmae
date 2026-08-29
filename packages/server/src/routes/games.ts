@@ -65,9 +65,6 @@ router.post('/join', authMiddleware, async (req: any, res) => {
       return res.status(400).json({ error: '無效的國家' });
     }
 
-    // Defensive check: make sure the logged-in user still exists in DB.
-    // A stale JWT cookie (e.g. issued before a DB reset/redeploy) would otherwise
-    // fail with a confusing foreign-key error on Player.create.
     const dbUser = await prisma.user.findUnique({ where: { id: req.user.id } });
     if (!dbUser) {
       return res.status(401).json({ error: 'stale_session', message: '登入資訊已失效,請重新登入' });
@@ -152,7 +149,6 @@ router.get('/:id/state', authMiddleware, async (req: any, res) => {
 
     const myPlayer = game.players.find((p) => p.userId === req.user.id);
 
-    // Get latest country states
     const countryStates = await prisma.countryState.findMany({
       where: { gameId: game.id, turn: game.currentTurn },
     });
@@ -205,7 +201,7 @@ router.post('/:id/orders', authMiddleware, async (req: any, res) => {
     const player = game.players.find((p) => p.userId === req.user.id);
     if (!player) return res.status(403).json({ error: '你未加入此戰局' });
 
-    const { type, fromTerritoryId, targetTerritoryId, infantry, artillery, cavalry, details } = req.body;
+    const { type, fromTerritoryId, targetTerritoryId, infantry, artillery, cavalry, divisionIds, recruitComposition, details } = req.body;
 
     if (!type) return res.status(400).json({ error: '必須指定指令類型' });
 
@@ -221,6 +217,8 @@ router.post('/:id/orders', authMiddleware, async (req: any, res) => {
         infantry: infantry || null,
         artillery: artillery || null,
         cavalry: cavalry || null,
+        divisionIds: Array.isArray(divisionIds) ? divisionIds : [],
+        recruitComposition: recruitComposition || null,
         details: details || null,
         status: 'PENDING',
       },
@@ -257,6 +255,8 @@ router.get('/:id/orders', authMiddleware, async (req: any, res) => {
         fromTerritoryId: o.fromTerritoryId,
         targetTerritoryId: o.targetTerritoryId,
         units: { infantry: o.infantry || 0, artillery: o.artillery || 0, cavalry: o.cavalry || 0 },
+        divisionIds: o.divisionIds,
+        recruitComposition: o.recruitComposition,
         status: o.status,
         createdAt: o.createdAt,
       })),
@@ -289,8 +289,6 @@ router.post('/:id/ready', authMiddleware, async (req: any, res) => {
   }
 });
 
-export default router;
-
 // === Player Unit Design ===
 import { UnitDesignerService } from '../services/unit-designer.js';
 const playerUnitDesigner = new UnitDesignerService();
@@ -304,7 +302,6 @@ router.get('/my-units', authMiddleware, async (req: any, res) => {
     const myPlayer = game.players.find((p) => p.userId === req.user.id);
     if (!myPlayer) return res.status(403).json({ error: '你尚未選擇國家' });
 
-    // Each player only sees/manages their own designed units (quota is per-player)
     const units = await prisma.customUnit.findMany({
       where: {
         OR: [{ gameId: game.id }, { gameId: null }],
@@ -355,6 +352,9 @@ router.delete('/delete-unit/:id', authMiddleware, async (req: any, res) => {
   try {
     const unit = await prisma.customUnit.findUnique({ where: { id: req.params.id } });
     if (!unit) return res.status(404).json({ error: '找不到該兵種' });
+    if (unit.isSystemDefault) {
+      return res.status(403).json({ error: '系統預設兵種不可刪除' });
+    }
     if (unit.designedByUserId !== req.user.id) {
       return res.status(403).json({ error: '只能刪除自己設計的兵種' });
     }
@@ -364,3 +364,5 @@ router.delete('/delete-unit/:id', authMiddleware, async (req: any, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+export default router;

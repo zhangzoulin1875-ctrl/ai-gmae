@@ -1,12 +1,15 @@
 import { WWI_COUNTRIES } from '@wwi/shared';
 import { prisma } from '../lib/prisma.js';
+import { ensureSystemUnits } from './military-init.js';
 
 const MAJOR_POWERS = new Set(['deu', 'aut', 'tur', 'gbr', 'fra', 'rus', 'ita', 'usa', 'jpn']);
 
 export async function initializeGameCountries(gameId: string): Promise<void> {
+  const sysUnits = await ensureSystemUnits();
+
   const records = WWI_COUNTRIES.map((c) => {
     const isMajor = MAJOR_POWERS.has(c.id);
-    const isSecondary = ['bgr', 'srb', 'bel', 'rou', 'grc', 'mne', 'can', 'aus', 'nzl', 'zaf', 'ind', 'prt', 'chn', 'tha', 'bra', 'cub', 'egy', 'sau'].includes(c.id);
+    const isSecondary = ['bgr', 'srb', 'bel', 'rou', 'grc', 'mne', 'can', 'aus', 'zaf', 'ind', 'prt', 'chn', 'tha', 'bra', 'cub', 'egy', 'sau'].includes(c.id);
 
     if (isMajor) {
       return {
@@ -33,5 +36,33 @@ export async function initializeGameCountries(gameId: string): Promise<void> {
   });
 
   await prisma.countryState.createMany({ data: records });
-  console.log(`[GameInit] Initialized ${records.length} country states for game ${gameId}`);
+
+  // Create CountryUnitStock & initial Division for each country
+  for (const rec of records) {
+    await prisma.countryUnitStock.createMany({
+      data: [
+        { gameId, countryId: rec.countryId, customUnitId: sysUnits.infantry.id, quantity: 0 },
+        { gameId, countryId: rec.countryId, customUnitId: sysUnits.artillery.id, quantity: 0 },
+        { gameId, countryId: rec.countryId, customUnitId: sysUnits.cavalry.id, quantity: 0 },
+      ],
+      skipDuplicates: true,
+    });
+
+    const composition: Record<string, number> = {};
+    if (rec.infantry > 0) composition[sysUnits.infantry.id] = rec.infantry;
+    if (rec.artillery > 0) composition[sysUnits.artillery.id] = rec.artillery;
+    if (rec.cavalry > 0) composition[sysUnits.cavalry.id] = rec.cavalry;
+
+    await prisma.division.create({
+      data: {
+        gameId,
+        countryId: rec.countryId,
+        name: '主力部隊',
+        composition,
+        status: 'ACTIVE',
+      },
+    });
+  }
+
+  console.log(`[GameInit] Initialized ${records.length} country states, unit stocks, and starting divisions for game ${gameId}`);
 }

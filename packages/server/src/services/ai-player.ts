@@ -4,20 +4,9 @@ import { RuleBasedAI } from './rule-based-ai.js';
 import { WWI_COUNTRIES } from '@wwi/shared';
 import type { AIProvider } from '@wwi/shared';
 
-// Max LLM API calls per turn (configurable via env). Default: 2
-// 1 = batch AI orders only (no LLM narrative), 2 = batch orders + narrative
 const MAX_LLM_CALLS_PER_TURN = parseInt(process.env.MAX_LLM_CALLS_PER_TURN || '2', 10);
 
 export class AIPlayerService {
-  /**
-   * Generate strategic orders for all AI-controlled countries in a game and turn.
-   *
-   * Rate-limit strategy:
-   * - LLM countries are BATCHED into a single API call (1 call for all)
-   * - Formula countries use zero-cost rule-based engine
-   * - Total LLM calls per turn: max 1 (batch orders) + 1 (narrative) = 2
-   * - Falls back to formula for any country where LLM didn't return orders
-   */
   async generateOrdersForGame(gameId: string, turn: number): Promise<void> {
     const allCountryStates = await prisma.countryState.findMany({ where: { gameId, turn } });
     if (allCountryStates.length === 0) return;
@@ -25,107 +14,231 @@ export class AIPlayerService {
     const aiCountryStates = allCountryStates.filter((cs) => cs.isAIControlled);
     if (aiCountryStates.length === 0) return;
 
-    // Load AI players to check their mode
     const aiPlayers = await prisma.player.findMany({ where: { gameId, isAI: true } });
     const playerModeMap = new Map<string, string>();
-    for (const p of aiPlayers) {
-      playerModeMap.set(p.countryId, p.aiPersonality || 'formula');
-    }
+    for (const p of aiPlayers) playerModeMap.set(p.countryId, p.aiPersonality || 'formula');
 
-    // Split into formula vs LLM groups
     const formulaStates: typeof aiCountryStates = [];
     const llmStates: typeof aiCountryStates = [];
 
     for (const cs of aiCountryStates) {
-      // Skip if already has pending orders
       const existing = await prisma.order.findMany({
         where: { gameId, countryId: cs.countryId, turn, status: 'PENDING' },
       });
       if (existing.length > 0) continue;
 
       const mode = playerModeMap.get(cs.countryId) || 'formula';
-      if (mode === 'llm') {
-        llmStates.push(cs);
-      } else {
-        formulaStates.push(cs);
-      }
+      if (mode === 'llm') llmStates.push(cs);
+      else formulaStates.push(cs);
     }
 
     console.log(`[AIPlayer] Turn ${turn}: ${formulaStates.length} formula, ${llmStates.length} LLM`);
 
-    // 1. Process ALL formula countries first (zero cost, instant)
+    // Ensure AI countries have divisions
+    await this.ensureAIDivisions(gameId, [...formulaStates, ...llmStates]);
+
     const ruleAI = new RuleBasedAI();
     for (const cs of formulaStates) {
-      const orders = ruleAI.generateOrders(cs, allCountryStates, turn).slice(0, 3);
+      const orders = await this.generateDivisionOrders(gameId, cs, allCountryStates, turn, ruleAI);
       await this.persistOrders(gameId, cs, turn, orders);
     }
 
-    // 2. Process LLM countries as a SINGLE batch call
-    if (llmStates.length > 0) {
-      let llmOrdersMap: Record<string, Array<any>> = {};
+    if (llmStates.length > 0 && MAX_LLM_CALLS_PER_TURN >= 1) {
+      const providers = await this.getActiveProviders();
+      if (providers.length > 0) {
+        const aiEngine = new AIEngine({
+          providers,
+          enableDeterministicFallback: false,
+          maxTotalTimeoutMs: 45000,
+        });
 
-      // Check rate limit
-      if (MAX_LLM_CALLS_PER_TURN >= 1) {
-        // Load AI providers
-        const providers = await this.getActiveProviders();
-        if (providers.length > 0) {
-          const aiEngine = new AIEngine({
-            providers,
-            enableDeterministicFallback: false,
-            maxTotalTimeoutMs: 45000,
-          });
-
-          // Single batch call for ALL LLM countries
+        let llmOrdersMap: Record<string, Array<any>> = {};
+        try {
           llmOrdersMap = await aiEngine.generateBatchAIOrders(
             turn,
             llmStates.map((cs) => ({
               countryId: cs.countryId,
-              infantry: cs.infantry,
-              artillery: cs.artillery,
-              cavalry: cs.cavalry,
-              morale: cs.morale,
-              gold: cs.gold,
-              industry: cs.industry,
-              manpower: cs.manpower,
-              stability: cs.stability,
+              infantry: cs.infantry, artillery: cs.artillery, cavalry: cs.cavalry,
+              morale: cs.morale, gold: cs.gold, industry: cs.industry,
+              manpower: cs.manpower, stability: cs.stability,
               territories: cs.territories as string[],
             })),
             allCountryStates
           );
-        } else {
-          console.warn('[AIPlayer] No LLM providers configured, using formula fallback for LLM-mode countries');
+        } catch (e: any) {
+          console.warn('[AIPlayer] LLM batch failed:', e.message);
+        }
+
+        for (const cs of llmStates) {
+          let orders = llmOrdersMap[cs.countryId] || [];
+          if (orders.length === 0) {
+            orders = await this.generateDivisionOrders(gameId, cs, allCountryStates, turn, ruleAI);
+          }
+          await this.persistOrders(gameId, cs, turn, orders);
         }
       } else {
-        console.log('[AIPlayer] LLM disabled (MAX_LLM_CALLS_PER_TURN=0), using formula for all');
-      }
-
-      // Use LLM orders if available, otherwise fall back to formula per-country
-      for (const cs of llmStates) {
-        let orders = llmOrdersMap[cs.countryId] || [];
-        if (orders.length === 0) {
-          // LLM didn't return orders for this country — use formula
-          orders = ruleAI.generateOrders(cs, allCountryStates, turn).slice(0, 3);
+        for (const cs of llmStates) {
+          const orders = await this.generateDivisionOrders(gameId, cs, allCountryStates, turn, ruleAI);
+          await this.persistOrders(gameId, cs, turn, orders);
         }
-        await this.persistOrders(gameId, cs, turn, orders);
       }
     }
 
-    console.log(`[AIPlayer] Turn ${turn} complete: ${formulaStates.length} formula + ${llmStates.length} LLM (batched into 1 call)`);
+    console.log(`[AIPlayer] Turn ${turn} complete`);
+  }
+
+  /**
+   * Ensure AI-controlled countries have at least one active division.
+   * If they have stockpile but no division, create one automatically.
+   */
+  private async ensureAIDivisions(gameId: string, aiStates: any[]): Promise<void> {
+    for (const cs of aiStates) {
+      const divCount = await prisma.division.count({
+        where: { gameId, countryId: cs.countryId, status: 'ACTIVE' },
+      });
+
+      if (divCount === 0) {
+        // Check stockpile
+        const stocks = await prisma.countryUnitStock.findMany({
+          where: { gameId, countryId: cs.countryId },
+        });
+
+        const composition: Record<string, number> = {};
+        for (const s of stocks) {
+          if (s.quantity > 0) composition[s.customUnitId] = s.quantity;
+        }
+
+        if (Object.keys(composition).length > 0) {
+          // Move all stock into a division
+          await prisma.division.create({
+            data: {
+              gameId,
+              countryId: cs.countryId,
+              name: 'AI 防衛軍',
+              composition,
+              status: 'ACTIVE',
+            },
+          });
+
+          // Clear stockpile (units are now in the division)
+          for (const s of stocks) {
+            await prisma.countryUnitStock.update({
+              where: { id: s.id },
+              data: { quantity: 0 },
+            });
+          }
+
+          console.log(`[AIPlayer] Created division for ${cs.countryId}`);
+        } else {
+          // No stock at all — recruit some system default units
+          const systemUnits = await prisma.customUnit.findMany({
+            where: { isSystemDefault: true },
+          });
+
+          const infantryUnit = systemUnits.find((u) => u.category === 'infantry');
+          if (infantryUnit && cs.gold >= infantryUnit.costGold * 100 && cs.manpower >= infantryUnit.costManpower * 100) {
+            await prisma.order.create({
+              data: {
+                gameId,
+                playerId: cs.playerId || `ai-${cs.countryId}`,
+                countryId: cs.countryId,
+                turn: cs.turn,
+                type: 'RECRUIT',
+                recruitComposition: { [infantryUnit.id]: 100 },
+                status: 'PENDING',
+                isAIOrder: true,
+              },
+            });
+            console.log(`[AIPlayer] ${cs.countryId} recruiting infantry (no stock)`);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Generate orders using divisions instead of raw troop counts.
+   */
+  private async generateDivisionOrders(
+    gameId: string,
+    cs: any,
+    allStates: any[],
+    turn: number,
+    ruleAI: RuleBasedAI
+  ): Promise<any[]> {
+    // Get AI's active divisions
+    const divisions = await prisma.division.findMany({
+      where: { gameId, countryId: cs.countryId, status: 'ACTIVE' },
+    });
+
+    if (divisions.length === 0) {
+      // No divisions — recruit if possible
+      const systemUnits = await prisma.customUnit.findMany({
+        where: { isSystemDefault: true },
+      });
+      const infantryUnit = systemUnits.find((u) => u.category === 'infantry');
+      if (infantryUnit && cs.gold >= infantryUnit.costGold * 50) {
+        return [{
+          type: 'RECRUIT',
+          recruitComposition: { [infantryUnit.id]: 50 },
+          targetTerritoryId: null,
+          fromTerritoryId: cs.territories[0] || cs.countryId,
+          divisionIds: [],
+          details: 'AI 招募步兵',
+        }];
+      }
+      return [];
+    }
+
+    // Use rule-based AI to decide action type
+    const baseOrders = ruleAI.generateOrders(cs, allStates, turn).slice(0, 3);
+
+    // Convert to division-based orders
+    const orders: any[] = [];
+    for (const base of baseOrders) {
+      if (base.type === 'ATTACK' && base.targetTerritoryId) {
+        // Send first active division
+        orders.push({
+          type: 'ATTACK',
+          targetTerritoryId: base.targetTerritoryId,
+          fromTerritoryId: cs.territories[0] || cs.countryId,
+          divisionIds: [divisions[0].id],
+          details: base.details || 'AI 進攻指令',
+        });
+      } else if (base.type === 'RECRUIT') {
+        const systemUnits = await prisma.customUnit.findMany({
+          where: { isSystemDefault: true },
+        });
+        const infantryUnit = systemUnits.find((u) => u.category === 'infantry');
+        if (infantryUnit && cs.gold >= infantryUnit.costGold * 50) {
+          orders.push({
+            type: 'RECRUIT',
+            recruitComposition: { [infantryUnit.id]: 50 },
+            targetTerritoryId: null,
+            fromTerritoryId: cs.territories[0] || cs.countryId,
+            divisionIds: [],
+            details: 'AI 招募指令',
+          });
+        }
+      } else if (base.type === 'DEFEND') {
+        orders.push({
+          type: 'DEFEND',
+          targetTerritoryId: null,
+          fromTerritoryId: cs.territories[0] || cs.countryId,
+          divisionIds: divisions.map((d) => d.id),
+          details: base.details || 'AI 防禦指令',
+        });
+      }
+    }
+
+    return orders;
   }
 
   private async persistOrders(
     gameId: string,
     aiState: any,
     turn: number,
-    orders: Array<{
-      type: string;
-      fromTerritoryId: string | null;
-      targetTerritoryId: string | null;
-      infantry: number | null;
-      artillery: number | null;
-      cavalry: number | null;
-      details: string | null;
-    }>
+    orders: any[]
   ): Promise<void> {
     for (const order of orders) {
       await prisma.order.create({
@@ -135,11 +248,13 @@ export class AIPlayerService {
           countryId: aiState.countryId,
           turn,
           type: order.type,
-          fromTerritoryId: order.fromTerritoryId || aiState.territories[0] || aiState.countryId,
+          fromTerritoryId: order.fromTerritoryId || null,
           targetTerritoryId: order.targetTerritoryId || null,
           infantry: order.infantry || null,
           artillery: order.artillery || null,
           cavalry: order.cavalry || null,
+          divisionIds: order.divisionIds || [],
+          recruitComposition: order.recruitComposition || null,
           details: order.details || 'AI 戰略指令',
           status: 'PENDING',
           isAIOrder: true,

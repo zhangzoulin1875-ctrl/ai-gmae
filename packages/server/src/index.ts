@@ -12,6 +12,9 @@ dotenv.config();
 import authRoutes from './routes/auth.js';
 import adminRoutes from './routes/admin.js';
 import gamesRoutes from './routes/games.js';
+import militaryRoutes from './routes/military.js';
+import policiesRoutes from './routes/policies.js';
+import notificationsRoutes from './routes/notifications.js';
 
 // Socket handlers
 import { handleGameSockets } from './sockets/game.js';
@@ -40,6 +43,9 @@ app.use(cookieParser());
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/games', gamesRoutes);
+app.use('/api/military', militaryRoutes);
+app.use('/api/policies', policiesRoutes);
+app.use('/api/notifications', notificationsRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
