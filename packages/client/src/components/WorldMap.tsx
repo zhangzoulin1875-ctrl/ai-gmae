@@ -115,6 +115,13 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
 
     map.on('load', () => {
       try {
+        // Force the correct camera position — if the container had zero
+        // size at construction time, MapLibre's internal transform can
+        // end up corrupted (we saw zoom snap to 22 / center to the map
+        // edge). jumpTo() forces a clean, correct camera regardless.
+        map.resize();
+        map.jumpTo({ center: [10, 25], zoom: 1.2 });
+
         // GeoJSON source — promoteId lets us use feature-state for hover
         map.addSource('provinces', {
           type: 'geojson',
@@ -275,7 +282,19 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
 
     mapRef.current = map;
 
+    // Keep the canvas correctly sized if the container's dimensions
+    // change after mount (flex/grid layouts often settle a frame late).
+    const resizeObserver = new ResizeObserver(() => {
+      try {
+        map.resize();
+      } catch {
+        // ignore
+      }
+    });
+    resizeObserver.observe(containerRef.current);
+
     return () => {
+      resizeObserver.disconnect();
       try {
         map.remove();
       } catch {
