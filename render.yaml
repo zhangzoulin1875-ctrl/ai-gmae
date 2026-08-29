@@ -14,7 +14,7 @@ services:
     runtime: node
     plan: free
     rootDir: .
-    buildCommand: npm install && npm run build:shared && npx prisma generate --schema=packages/server/src/prisma/schema.prisma
+    buildCommand: npm install && npm run build:shared && npx prisma generate --schema=packages/server/src/prisma/schema.prisma && npx prisma db push --schema=packages/server/src/prisma/schema.prisma --accept-data-loss
     startCommand: npx tsx packages/server/src/index.ts
     healthCheckPath: /api/health
     envVars:

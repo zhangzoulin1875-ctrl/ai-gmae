@@ -1,14 +1,22 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GameRoom, WWI_COUNTRIES, CountryDefinition, SIDE_LABELS_ZH } from '@wwi/shared';
+import { WWI_COUNTRIES, CountryDefinition, SIDE_LABELS_ZH } from '@wwi/shared';
 import { getApiUrl } from '../lib/api';
+
+interface CurrentGameInfo {
+  game: { id: string; name: string; status: string; currentTurn: number; createdAt: string } | null;
+  totalCountries: number;
+  takenCountryIds: string[];
+  myCountryId: string | null;
+  players: { countryId: string; username: string; avatar: string | null; isAI: boolean }[];
+}
 
 const Lobby: React.FC = () => {
   const navigate = useNavigate();
-  const [games, setGames] = useState<GameRoom[]>([]);
+  const [info, setInfo] = useState<CurrentGameInfo | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [newGameName, setNewGameName] = useState<string>('');
-  const [selectedCountry, setSelectedCountry] = useState<string>('deu');
+  const [joining, setJoining] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
@@ -20,61 +28,51 @@ const Lobby: React.FC = () => {
         // ignore
       }
     }
-
-    fetchGames();
-    const interval = setInterval(fetchGames, 5000);
-    return () => clearInterval(interval);
   }, []);
 
-  const fetchGames = async () => {
+  const fetchCurrent = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token');
-      const headers: Record<string, string> = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const res = await fetch(getApiUrl('/api/admin/games'), { headers, credentials: 'include' });
+      const res = await fetch(getApiUrl('/api/games/current'), { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        setGames(data.games || []);
+        setInfo(data);
       }
     } catch (err) {
-      console.error('載入戰局失敗', err);
+      console.error('載入戰局狀態失敗', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleCreateGame = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newGameName.trim()) return;
+  useEffect(() => {
+    fetchCurrent();
+    const interval = setInterval(fetchCurrent, 5000);
+    return () => clearInterval(interval);
+  }, [fetchCurrent]);
 
+  const handleJoin = async (countryId: string) => {
+    if (joining) return;
+    setJoining(countryId);
+    setError(null);
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(getApiUrl('/api/games'), {
+      const res = await fetch(getApiUrl('/api/games/join'), {
         method: 'POST',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          name: newGameName,
-          countryId: selectedCountry
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ countryId }),
       });
-
+      const data = await res.json();
       if (res.ok) {
-        const game = await res.json();
-        setNewGameName('');
-        navigate(`/game/${game.id}`);
+        navigate(`/game/${data.gameId}`);
+      } else {
+        setError(data.error || '選擇國家失敗');
+        fetchCurrent();
       }
     } catch (err) {
-      console.error('建立戰局失敗', err);
+      setError('連線失敗,請再試一次');
+    } finally {
+      setJoining(null);
     }
-  };
-
-  const handleJoinGame = async (gameId: string) => {
-    navigate(`/game/${gameId}`);
   };
 
   const handleLogout = async () => {
@@ -83,6 +81,9 @@ const Lobby: React.FC = () => {
     localStorage.removeItem('user');
     navigate('/');
   };
+
+  const takenSet = new Set(info?.takenCountryIds || []);
+  const isFull = !!info?.game && takenSet.size >= (info?.totalCountries || WWI_COUNTRIES.length);
 
   return (
     <div>
@@ -95,82 +96,105 @@ const Lobby: React.FC = () => {
         </div>
       </header>
 
-      <div className="container">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '2rem' }}>
-          {/* Main Games List */}
-          <div>
-            <h3 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
-              進行中的戰局 ({games.length})
-            </h3>
-
-            {loading ? (
-              <p>正在載入戰局清單...</p>
-            ) : games.length === 0 ? (
-              <div className="card" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
-                <p style={{ color: 'var(--text-muted)' }}>目前沒有進行中的戰局,在右側建立一個新的戰局吧!</p>
+      <div className="container" style={{ marginTop: '1.5rem' }}>
+        {loading ? (
+          <p>正在載入戰局狀態...</p>
+        ) : !info?.game ? (
+          <div className="card" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
+            <h3 style={{ marginBottom: '0.5rem' }}>目前沒有進行中的戰局</h3>
+            <p style={{ color: 'var(--text-muted)' }}>請等待管理員在後台開啟新戰局,頁面會自動更新。</p>
+          </div>
+        ) : (
+          <>
+            <div className="card" style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ fontSize: '1.3rem', marginBottom: '0.25rem' }}>{info.game.name}</h3>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  第 {info.game.currentTurn} 回合 | 狀態: <span style={{ color: 'var(--accent-gold)' }}>{info.game.status}</span> | 已選國家: {takenSet.size}/{info.totalCountries}
+                </p>
               </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                {games.map((game) => (
-                  <div key={game.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <h4 style={{ fontSize: '1.2rem', color: 'var(--text-main)', marginBottom: '0.25rem' }}>{game.name}</h4>
-                      <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                        第 {game.currentTurn} 回合 | 狀態: <span style={{ color: 'var(--accent-gold)' }}>{game.status}</span> | 玩家: {game.players.length}/{game.maxPlayers}
-                      </p>
-                    </div>
-                    <button className="btn-primary" onClick={() => handleJoinGame(game.id)}>
-                      進入戰情室
-                    </button>
-                  </div>
-                ))}
+              {info.myCountryId && (
+                <button className="btn-primary" onClick={() => navigate(`/game/${info.game!.id}`)}>
+                  進入戰情室
+                </button>
+              )}
+            </div>
+
+            {error && (
+              <div style={{
+                padding: '0.75rem 1rem',
+                marginBottom: '1rem',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid #ef4444',
+                borderRadius: '4px',
+                color: '#ef4444'
+              }}>
+                {error}
               </div>
             )}
-          </div>
 
-          {/* Create Game Sidebar */}
-          <div>
-            <div className="card">
-              <h3 style={{ marginBottom: '1rem', fontSize: '1.2rem' }}>建立新戰局</h3>
-              <form onSubmit={handleCreateGame} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
-                    戰局名稱
-                  </label>
-                  <input
-                    type="text"
-                    className="input-field"
-                    placeholder="例如:1914 西線戰役"
-                    value={newGameName}
-                    onChange={(e) => setNewGameName(e.target.value)}
-                    required
-                  />
+            {info.myCountryId ? (
+              <div className="card" style={{ textAlign: 'center', padding: '2rem 1rem' }}>
+                <p style={{ color: 'var(--text-muted)', marginBottom: '0.5rem' }}>你已動員為</p>
+                <h3 style={{ fontSize: '1.5rem' }}>
+                  {(() => {
+                    const c = WWI_COUNTRIES.find((x) => x.id === info.myCountryId);
+                    return c ? `${c.flagIcon} ${c.nameZh}` : info.myCountryId;
+                  })()}
+                </h3>
+              </div>
+            ) : isFull ? (
+              <div className="card" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
+                <h3 style={{ marginBottom: '0.5rem' }}>所有國家已被選完</h3>
+                <p style={{ color: 'var(--text-muted)' }}>請等待這局結束後的下一場戰局。</p>
+              </div>
+            ) : (
+              <>
+                <h3 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
+                  選擇你的國家 — 先搶先贏!
+                </h3>
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+                  gap: '0.75rem'
+                }}>
+                  {WWI_COUNTRIES.map((c: CountryDefinition) => {
+                    const taken = takenSet.has(c.id);
+                    return (
+                      <button
+                        key={c.id}
+                        disabled={taken || !!joining}
+                        onClick={() => handleJoin(c.id)}
+                        className="card"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          textAlign: 'left',
+                          cursor: taken ? 'not-allowed' : 'pointer',
+                          opacity: taken ? 0.4 : 1,
+                          border: '1px solid var(--border-color)',
+                          padding: '0.75rem 1rem',
+                        }}
+                      >
+                        <span>
+                          {c.flagIcon} {c.nameZh}
+                          <br />
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            {SIDE_LABELS_ZH[c.side]}
+                          </span>
+                        </span>
+                        <span style={{ fontSize: '0.8rem', color: taken ? '#ef4444' : 'var(--accent-gold)' }}>
+                          {joining === c.id ? '選取中...' : taken ? '已被選走' : '選擇'}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
-                    選擇您的國家(共 {WWI_COUNTRIES.length} 個)
-                  </label>
-                  <select
-                    className="input-field"
-                    value={selectedCountry}
-                    onChange={(e) => setSelectedCountry(e.target.value)}
-                  >
-                    {WWI_COUNTRIES.map((c: CountryDefinition) => (
-                      <option key={c.id} value={c.id}>
-                        {c.flagIcon} {c.nameZh} ({SIDE_LABELS_ZH[c.side]})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <button type="submit" className="btn-primary" style={{ marginTop: '0.5rem', justifyContent: 'center' }}>
-                  動員並開戰
-                </button>
-              </form>
-            </div>
-          </div>
-        </div>
+              </>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

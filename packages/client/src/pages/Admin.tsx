@@ -15,6 +15,12 @@ const Admin: React.FC = () => {
   const [testingProvider, setTestingProvider] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<Record<string, string>>({});
 
+  // Game management state
+  const [games, setGames] = useState<any[]>([]);
+  const [newGameName, setNewGameName] = useState('');
+  const [gameActionLoading, setGameActionLoading] = useState(false);
+  const [gameError, setGameError] = useState('');
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -30,6 +36,7 @@ const Admin: React.FC = () => {
         localStorage.setItem('adminToken', data.token);
         setAuthed(true);
         loadConfig();
+        loadGames();
       } else {
         setError(data.error || '驗證失敗');
       }
@@ -53,6 +60,70 @@ const Admin: React.FC = () => {
       }
     } catch (err) {
       console.error('載入設定失敗');
+    }
+  };
+
+  const loadGames = async () => {
+    const token = localStorage.getItem('adminToken');
+    try {
+      const res = await fetch(getApiUrl('/api/admin/games'), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setGames(data.games || []);
+      }
+    } catch (err) {
+      console.error('載入戰局清單失敗');
+    }
+  };
+
+  const createGame = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newGameName.trim()) return;
+    const token = localStorage.getItem('adminToken');
+    setGameActionLoading(true);
+    setGameError('');
+    try {
+      const res = await fetch(getApiUrl('/api/admin/games'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: newGameName.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setNewGameName('');
+        loadGames();
+      } else {
+        setGameError(data.error || '開啟戰局失敗');
+      }
+    } catch (err: any) {
+      setGameError(err.message || '連線錯誤');
+    } finally {
+      setGameActionLoading(false);
+    }
+  };
+
+  const endGame = async (gameId: string) => {
+    if (!window.confirm('確定要結束這場戰局嗎?結束後才能開啟新戰局。')) return;
+    const token = localStorage.getItem('adminToken');
+    setGameActionLoading(true);
+    setGameError('');
+    try {
+      const res = await fetch(getApiUrl(`/api/admin/games/${gameId}/end`), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        loadGames();
+      } else {
+        const data = await res.json();
+        setGameError(data.error || '結束戰局失敗');
+      }
+    } catch (err: any) {
+      setGameError(err.message || '連線錯誤');
+    } finally {
+      setGameActionLoading(false);
     }
   };
 
@@ -312,7 +383,7 @@ const Admin: React.FC = () => {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
           <div className="card">
             <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>進行中戰局</p>
-            <p style={{ fontSize: '2rem', fontWeight: 700 }}>—</p>
+            <p style={{ fontSize: '2rem', fontWeight: 700 }}>{games.filter((g) => g.status === 'WAITING' || g.status === 'ACTIVE').length}</p>
           </div>
           <div className="card">
             <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>在線玩家</p>
@@ -504,12 +575,81 @@ const Admin: React.FC = () => {
       )}
 
       {/* Games Tab */}
-      {tab === 'games' && (
-        <div className="card">
-          <h3>進行中戰局</h3>
-          <p style={{ color: 'var(--text-muted)' }}>戰局資料載入中...</p>
-        </div>
-      )}
+      {tab === 'games' && (() => {
+        const currentGame = games.find((g) => g.status === 'WAITING' || g.status === 'ACTIVE');
+        const history = games.filter((g) => g !== currentGame);
+        return (
+          <div>
+            {gameError && (
+              <div style={{ padding: '0.75rem', marginBottom: '1rem', backgroundColor: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', borderRadius: '4px', color: '#ef4444' }}>
+                {gameError}
+              </div>
+            )}
+
+            <div className="card" style={{ marginBottom: '1.5rem' }}>
+              <h3 style={{ marginBottom: '1rem' }}>目前戰局</h3>
+              {currentGame ? (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <p style={{ fontSize: '1.2rem', fontWeight: 600 }}>{currentGame.name}</p>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      狀態: <span style={{ color: 'var(--accent-gold)' }}>{currentGame.status}</span> | 第 {currentGame.currentTurn} 回合 | 玩家: {currentGame.playerCount}/{currentGame.maxPlayers}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => endGame(currentGame.id)}
+                    disabled={gameActionLoading}
+                    style={{ padding: '0.6rem 1.5rem', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    結束戰局
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={createGame} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
+                      戰局名稱
+                    </label>
+                    <input
+                      type="text"
+                      className="input-field"
+                      placeholder="例如:1914 西線戰役"
+                      value={newGameName}
+                      onChange={(e) => setNewGameName(e.target.value)}
+                      style={{ width: '100%' }}
+                      required
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={gameActionLoading}
+                    style={{ padding: '0.75rem 1.5rem', backgroundColor: '#22c55e', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  >
+                    {gameActionLoading ? '開啟中...' : '開啟新戰局'}
+                  </button>
+                </form>
+              )}
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '0.75rem' }}>
+                一次只能有一場進行中的戰局。玩家進入大廳後採先搶先贏方式選擇國家,選完就只能等下一局。
+              </p>
+            </div>
+
+            <h3 style={{ marginBottom: '1rem' }}>歷史戰局</h3>
+            {history.length === 0 ? (
+              <p style={{ color: 'var(--text-muted)' }}>尚無歷史戰局紀錄。</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {history.map((g) => (
+                  <div key={g.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem 1rem' }}>
+                    <span>{g.name}</span>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{g.status} · 玩家 {g.playerCount}/{g.maxPlayers}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Players Tab */}
       {tab === 'players' && (

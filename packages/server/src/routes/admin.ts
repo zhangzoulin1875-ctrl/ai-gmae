@@ -2,6 +2,8 @@ import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import type { AIConfig, AIProvider } from '@wwi/shared';
 import { AIEngine } from '../services/ai-engine.js';
+import { WWI_COUNTRIES } from '@wwi/shared';
+import { prisma } from '../lib/prisma.js';
 
 const router = Router();
 
@@ -104,10 +106,70 @@ router.post('/test-provider', adminAuth, async (req, res) => {
   }
 });
 
-// Get all games (admin)
+const TOTAL_COUNTRIES = WWI_COUNTRIES.length;
+
+// Get all games (admin) - most recent first, with player counts
 router.get('/games', adminAuth, async (_req, res) => {
-  // Will return games from DB
-  res.json({ games: [], message: 'Game management will be available after DB setup' });
+  try {
+    const games = await prisma.gameRoom.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      include: { players: true },
+    });
+
+    res.json({
+      games: games.map((g) => ({
+        id: g.id,
+        name: g.name,
+        status: g.status,
+        currentTurn: g.currentTurn,
+        playerCount: g.players.length,
+        maxPlayers: TOTAL_COUNTRIES,
+        createdAt: g.createdAt,
+      })),
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Open a new game - only one WAITING/ACTIVE game is allowed at a time
+router.post('/games', adminAuth, async (req, res) => {
+  try {
+    const { name } = req.body as { name?: string };
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: '戰局名稱必填' });
+    }
+
+    const existing = await prisma.gameRoom.findFirst({
+      where: { status: { in: ['WAITING', 'ACTIVE'] } },
+    });
+    if (existing) {
+      return res.status(409).json({ error: `已有進行中的戰局「${existing.name}」,請先結束才能開啟新戰局` });
+    }
+
+    const game = await prisma.gameRoom.create({
+      data: { name: name.trim(), status: 'ACTIVE' },
+    });
+
+    res.json({ success: true, game });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// End the current game, freeing things up for a new one
+router.post('/games/:gameId/end', adminAuth, async (req, res) => {
+  try {
+    const { gameId } = req.params;
+    const game = await prisma.gameRoom.update({
+      where: { id: gameId },
+      data: { status: 'COMPLETED' },
+    });
+    res.json({ success: true, game });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Assign AI to empty country

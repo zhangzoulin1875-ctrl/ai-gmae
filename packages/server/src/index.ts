@@ -11,6 +11,7 @@ dotenv.config();
 // Routes
 import authRoutes from './routes/auth.js';
 import adminRoutes from './routes/admin.js';
+import gamesRoutes from './routes/games.js';
 
 // Socket handlers
 import { handleGameSockets } from './sockets/game.js';
@@ -38,6 +39,7 @@ app.use(cookieParser());
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/games', gamesRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {

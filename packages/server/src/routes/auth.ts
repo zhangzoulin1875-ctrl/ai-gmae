@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import { DiscordService } from '../services/discord.js';
+import { prisma } from '../lib/prisma.js';
 
 const router = Router();
 const discordService = new DiscordService();
@@ -34,15 +35,24 @@ router.get('/discord/callback', async (req, res) => {
     const tokenResponse = await discordService.exchangeCode(code, DISCORD_REDIRECT_URI);
     // Get user info
     const userInfo = await discordService.getUser(tokenResponse.access_token);
+    const avatarUrl = userInfo.avatar
+      ? `https://cdn.discordapp.com/avatars/${userInfo.id}/${userInfo.avatar}.png`
+      : null;
 
-    // Create JWT
+    // Upsert into DB so we have a stable internal user id (Player.userId FKs to this)
+    const dbUser = await prisma.user.upsert({
+      where: { discordId: userInfo.id },
+      update: { username: userInfo.username, avatar: avatarUrl },
+      create: { discordId: userInfo.id, username: userInfo.username, avatar: avatarUrl },
+    });
+
+    // Create JWT (id = internal DB user id, discordId kept for reference)
     const token = jwt.sign(
       {
-        id: userInfo.id,
+        id: dbUser.id,
+        discordId: userInfo.id,
         username: userInfo.username,
-        avatar: userInfo.avatar
-          ? `https://cdn.discordapp.com/avatars/${userInfo.id}/${userInfo.avatar}.png`
-          : null,
+        avatar: avatarUrl,
         provider: 'discord',
       },
       JWT_SECRET,
