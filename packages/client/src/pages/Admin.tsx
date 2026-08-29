@@ -154,6 +154,23 @@ const Admin: React.FC = () => {
     finally { setAiCountryLoading(null); }
   };
 
+  const handleSwitchAIMode = async (gameId: string, countryId: string, mode: string) => {
+    const token = localStorage.getItem('adminToken');
+    if (!token) return;
+    setAiCountryLoading(countryId + '-mode');
+    try {
+      const res = await fetch(getApiUrl(`/api/admin/games/${gameId}/ai-mode`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ countryId, mode }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setGameError(data.error || '切換失敗'); }
+      else { await loadAICountries(); }
+    } catch { setGameError('連線失敗'); }
+    finally { setAiCountryLoading(null); }
+  };
+
   // Load data when tab changes
   useEffect(() => {
     if (!authed) return;
@@ -835,14 +852,30 @@ const Admin: React.FC = () => {
                         </button>
                       )}
                       {c.controller.type === 'ai' && activeGame && (
-                        <button
-                          onClick={() => handleUnassignAI(activeGame.id, c.countryId)}
-                          disabled={aiCountryLoading === c.countryId}
-                          className="btn-secondary"
-                          style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}
-                        >
-                          {aiCountryLoading === c.countryId ? '...' : '撤除 AI'}
-                        </button>
+                        <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                          <button
+                            onClick={() => handleSwitchAIMode(activeGame.id, c.countryId, c.controller.mode === 'llm' ? 'formula' : 'llm')}
+                            disabled={aiCountryLoading === c.countryId + '-mode'}
+                            style={{
+                              padding: '0.2rem 0.5rem', fontSize: '0.75rem', borderRadius: '4px',
+                              border: '1px solid',
+                              borderColor: c.controller.mode === 'llm' ? '#a855f7' : 'var(--border-color)',
+                              color: c.controller.mode === 'llm' ? '#a855f7' : 'var(--text-muted)',
+                              background: 'transparent', cursor: 'pointer', whiteSpace: 'nowrap',
+                            }}
+                            title="切換 AI 引擎模式"
+                          >
+                            {aiCountryLoading === c.countryId + '-mode' ? '...' : c.controller.mode === 'llm' ? '🧠 LLM' : '⚙️ 公式'}
+                          </button>
+                          <button
+                            onClick={() => handleUnassignAI(activeGame.id, c.countryId)}
+                            disabled={aiCountryLoading === c.countryId}
+                            className="btn-secondary"
+                            style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}
+                          >
+                            {aiCountryLoading === c.countryId ? '...' : '撤除'}
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>

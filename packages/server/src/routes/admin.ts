@@ -179,17 +179,79 @@ router.post('/games/:gameId/end', adminAuth, async (req, res) => {
 
 // Assign AI to empty country
 router.post('/games/:gameId/assign-ai', adminAuth, async (req, res) => {
-  const { gameId } = req.params;
-  const { countryId, personality } = req.body;
-  // Will be implemented with DB
-  res.json({ success: true, message: `AI assigned to ${countryId} in game ${gameId}` });
+  try {
+    const { gameId } = req.params;
+    const { countryId } = req.body;
+    if (!countryId) return res.status(400).json({ error: '必須指定國家' });
+
+    // Check if human player already controls this country
+    const existingHuman = await prisma.player.findFirst({
+      where: { gameId, countryId, isAI: false },
+    });
+    if (existingHuman) return res.status(409).json({ error: '該國家已有人類玩家' });
+
+    // Find or create an AI user
+    let aiUser = await prisma.user.findFirst({ where: { discordId: `ai-${countryId}` } });
+    if (!aiUser) {
+      const countryDef = WWI_COUNTRIES.find((c) => c.id === countryId);
+      aiUser = await prisma.user.create({
+        data: { discordId: `ai-${countryId}`, username: `AI - ${countryDef?.nameZh || countryId}`, isAdmin: false },
+      });
+    }
+
+    // Remove existing AI player for this country if any
+    await prisma.player.deleteMany({ where: { gameId, countryId, isAI: true } });
+
+    // Create AI Player with formula mode by default
+    await prisma.player.create({
+      data: {
+        userId: aiUser.id,
+        gameId,
+        countryId,
+        isAI: true,
+        isReady: true,
+        aiPersonality: 'formula',
+      },
+    });
+
+    // Update CountryState
+    const game = await prisma.gameRoom.findUnique({ where: { id: gameId } });
+    if (game) {
+      await prisma.countryState.updateMany({
+        where: { gameId, countryId, turn: game.currentTurn },
+        data: { isAIControlled: true },
+      });
+    }
+
+    res.json({ success: true, message: `已指派 AI 控制 ${countryId}（預設：公式引擎）` });
+  } catch (error: any) {
+    console.error('[Admin] assign-ai error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Remove AI from country
 router.post('/games/:gameId/remove-ai', adminAuth, async (req, res) => {
-  const { gameId } = req.params;
-  const { countryId } = req.body;
-  res.json({ success: true, message: `AI removed from ${countryId} in game ${gameId}` });
+  try {
+    const { gameId } = req.params;
+    const { countryId } = req.body;
+    if (!countryId) return res.status(400).json({ error: '必須指定國家' });
+
+    await prisma.player.deleteMany({ where: { gameId, countryId, isAI: true } });
+
+    const game = await prisma.gameRoom.findUnique({ where: { id: gameId } });
+    if (game) {
+      await prisma.countryState.updateMany({
+        where: { gameId, countryId, turn: game.currentTurn },
+        data: { isAIControlled: false },
+      });
+    }
+
+    res.json({ success: true, message: `已撤除 ${countryId} 的 AI 控制` });
+  } catch (error: any) {
+    console.error('[Admin] remove-ai error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Force resolve turn
@@ -391,7 +453,7 @@ router.get('/games/:gameId/countries', adminAuth, async (req, res) => {
         flagIcon: c.flagIcon,
         side: c.side,
         controller: player
-          ? { type: player.isAI ? 'ai' : 'human', username: player.user.username, isReady: player.isReady }
+          ? { type: player.isAI ? 'ai' : 'human', username: player.user.username, isReady: player.isReady, mode: player.aiPersonality || 'formula' }
           : { type: 'empty' },
       };
     });
@@ -399,6 +461,33 @@ router.get('/games/:gameId/countries', adminAuth, async (req, res) => {
     res.json({ countries, totalCountries: countries.length });
   } catch (error: any) {
     console.error('[Admin] countries error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// === Switch AI mode (formula/llm) for a country ===
+router.post('/games/:gameId/ai-mode', adminAuth, async (req, res) => {
+  try {
+    const { gameId } = req.params;
+    const { countryId, mode } = req.body;
+    if (!countryId) return res.status(400).json({ error: '必須指定國家' });
+    if (mode !== 'formula' && mode !== 'llm') return res.status(400).json({ error: '模式必須是 formula 或 llm' });
+
+    // Update the AI Player's aiPersonality field
+    const player = await prisma.player.findFirst({
+      where: { gameId, countryId, isAI: true },
+    });
+
+    if (!player) return res.status(404).json({ error: '該國家未被指派為 AI' });
+
+    await prisma.player.update({
+      where: { id: player.id },
+      data: { aiPersonality: mode },
+    });
+
+    res.json({ success: true, message: `${countryId} 已切換為 ${mode === 'formula' ? '公式引擎' : 'AI/LLM 引擎'}` });
+  } catch (error: any) {
+    console.error('[Admin] ai-mode error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
