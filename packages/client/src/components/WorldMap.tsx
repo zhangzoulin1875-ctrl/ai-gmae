@@ -143,35 +143,40 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
       setMapError(`MapLibre error: ${detail}`);
     });
 
-    map.on('load', () => {
+    map.on('load', async () => {
       try {
         map.resize();
         map.jumpTo({ center: mapCenter, zoom: mapZoom });
 
-        // GeoJSON source — promoteId lets us use feature-state for hover
-        map.addSource('provinces', {
-          type: 'geojson',
-          data: GEOJSON_URL,
-          promoteId: 'id',
-        });
+        // Fetch the GeoJSON ourselves so we can synchronously apply scenario
+        // province overrides BEFORE handing data to MapLibre. (MapLibre's
+        // internal `_data` for a URL-based geojson source is only populated
+        // asynchronously inside its worker — reading it right after
+        // addSource() is a race condition and can be non-iterable.)
+        const geojsonRes = await fetch(GEOJSON_URL);
+        const geojson = await geojsonRes.json();
 
         // Apply province-level overrides from scenario (e.g. warlord China split)
-        if (provinceOverrides) {
-          const source = map.getSource('provinces');
-          const data = source._data;
+        if (provinceOverrides && Array.isArray(geojson?.features)) {
           let modified = 0;
-          for (const feat of data.features) {
-            const featId = feat.properties?.id || feat.id;
+          for (const feat of geojson.features) {
+            const featId = feat.properties?.id ?? feat.id;
             if (featId && provinceOverrides[featId]) {
               feat.properties.wwi = provinceOverrides[featId];
               modified++;
             }
           }
           if (modified > 0) {
-            source.setData(data);
             console.log(`[WorldMap] Applied ${modified} province overrides from scenario`);
           }
         }
+
+        // GeoJSON source — promoteId lets us use feature-state for hover
+        map.addSource('provinces', {
+          type: 'geojson',
+          data: geojson,
+          promoteId: 'id',
+        });
 
         // 1) Province fills — colored by wwi, brightens on hover via feature-state
         map.addLayer({

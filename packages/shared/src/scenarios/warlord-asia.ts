@@ -42,14 +42,9 @@ export const warlordAsia: ScenarioDefinition = {
    * Chinese provinces are split among warlord factions.
    * Non-Asian territories are left as '-1' (unclaimed, off-map).
    *
-   * China province ISO2 codes used in GeoJSON:
-   * CN-11 (北京), CN-12 (天津), CN-13 (河北), CN-14 (山西), CN-15 (內蒙古),
-   * CN-21 (遼寧), CN-22 (吉林), CN-23 (黑龍江), CN-31 (上海), CN-32 (江蘇),
-   * CN-33 (浙江), CN-34 (安徽), CN-35 (福建), CN-36 (江西), CN-37 (山東),
-   * CN-41 (河南), CN-42 (湖北), CN-43 (湖南), CN-44 (廣東), CN-45 (廣西),
-   * CN-46 (海南), CN-50 (重慶), CN-51 (四川), CN-52 (貴州), CN-53 (雲南),
-   * CN-54 (西藏), CN-61 (陝西), CN-62 (甘肅), CN-63 (青海), CN-64 (寧夏),
-   * CN-65 (新疆), CN-71 (台灣), CN-91 (香港), CN-92 (澳門)
+   * China province feature IDs used in this GeoJSON (NOT ISO 3166-2 codes —
+   * this map's `id` property uses its own scheme, e.g. "CHN-1155" for Beijing,
+   * "CN-20529" for Anhui). See provinceOverrides below for the exact mapping.
    *
    * Since the GeoJSON uses country-level ISO2 (e.g. "CN" for all of China),
    * we map at the top level. Province-level splits within China will be
@@ -143,54 +138,54 @@ export const warlordAsia: ScenarioDefinition = {
    */
   provinceOverrides: {
     // Anhui Clique (Beijing government)
-    'CN-11': 'wm_anhui',  // Beijing
-    'CN-12': 'wm_anhui',  // Tianjin
-    'CN-13': 'wm_anhui',  // Hebei
-    'CN-37': 'wm_anhui',  // Shandong
-    'CN-34': 'wm_anhui',  // Anhui
-    'CN-32': 'wm_anhui',  // Jiangsu
-    'CN-31': 'wm_anhui',  // Shanghai
-    'CN-33': 'wm_anhui',  // Zhejiang
-    'CN-35': 'wm_anhui',  // Fujian
+    'CHN-1155': 'wm_anhui',  // Beijing
+    'CHN-1816': 'wm_anhui',  // Tianjin
+    'CHN-1811': 'wm_anhui',  // Hebei
+    'CHN-1814': 'wm_anhui',  // Shandong
+    'CN-20529': 'wm_anhui',  // Anhui
+    'CHN-1818': 'wm_anhui',  // Jiangsu
+    'CHN-1819': 'wm_anhui',  // Shanghai
+    'CHN-1820': 'wm_anhui',  // Zhejiang
+    'CHN-1178': 'wm_anhui',  // Fujian
 
     // Zhili Clique
-    'CN-41': 'wm_zhili',  // Henan
-    'CN-42': 'wm_zhili',  // Hubei
-    'CN-43': 'wm_zhili',  // Hunan
-    'CN-36': 'wm_zhili',  // Jiangxi
+    'CHN-1812': 'wm_zhili',  // Henan
+    'CHN-1807': 'wm_zhili',  // Hubei
+    'CHN-1808': 'wm_zhili',  // Hunan
+    'CHN-1817': 'wm_zhili',  // Jiangxi
 
     // Fengtian Clique (Northeast)
-    'CN-21': 'wm_fengtian',  // Liaoning
-    'CN-22': 'wm_fengtian',  // Jilin
-    'CN-23': 'wm_fengtian',  // Heilongjiang
+    'CHN-1813': 'wm_fengtian',  // Liaoning
+    'CHN-1828': 'wm_fengtian',  // Jilin
+    'CHN-1839': 'wm_fengtian',  // Heilongjiang
 
     // KMT (South)
-    'CN-44': 'wm_kmt',    // Guangdong
-    'CN-46': 'wm_kmt',    // Hainan
-    'CN-54': 'wm_kmt',    // Tibet (nominally Chinese)
+    'CHN-1180': 'wm_kmt',    // Guangdong
+    'CHN-1775': 'wm_kmt',    // Hainan
+    'CHN-1662': 'wm_kmt',    // Tibet (nominally Chinese)
 
     // Guangxi Clique
-    'CN-45': 'wm_guangxi',  // Guangxi
+    'CHN-1152': 'wm_guangxi',  // Guangxi
 
     // Yunnan Clique
-    'CN-53': 'wm_yunnan',   // Yunnan
-    'CN-52': 'wm_yunnan',   // Guizhou
+    'CHN-1810': 'wm_yunnan',   // Yunnan
+    'CHN-1153': 'wm_yunnan',   // Guizhou
 
     // Sichuan Clique
-    'CN-51': 'wm_sichuan',  // Sichuan
-    'CN-50': 'wm_sichuan',  // Chongqing
+    'CHN-1809': 'wm_sichuan',  // Sichuan
+    'CHN-1154': 'wm_sichuan',  // Chongqing
 
     // Shanxi Clique
-    'CN-14': 'wm_shanxi',   // Shanxi
-    'CN-61': 'wm_shanxi',   // Shaanxi
-    'CN-62': 'wm_shanxi',   // Gansu
-    'CN-64': 'wm_shanxi',   // Ningxia
+    'CHN-1805': 'wm_shanxi',   // Shanxi
+    'CHN-1804': 'wm_shanxi',   // Shaanxi
+    'CHN-1150': 'wm_shanxi',   // Gansu
+    'CHN-1803': 'wm_shanxi',   // Ningxia
 
     // Xinjiang Clique
-    'CN-65': 'wm_xinjiang', // Xinjiang
-    'CN-63': 'wm_xinjiang', // Qinghai
+    'CHN-1756': 'wm_xinjiang', // Xinjiang
+    'CHN-1151': 'wm_xinjiang', // Qinghai
 
     // Mongolia (Inner Mongolia)
-    'CN-15': 'wm_mongolia', // Inner Mongolia
+    'CHN-1838': 'wm_mongolia', // Inner Mongolia
   },
 };
