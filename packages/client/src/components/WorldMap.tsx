@@ -1,136 +1,236 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import {
-  ComposableMap,
-  Geographies,
-  Geography,
-  ZoomableGroup,
-} from 'react-simple-maps';
+import { useEffect, useRef, useState, useMemo } from 'react';
+import { Map as MapLibreMap, type MapLayerMouseEvent } from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import type { CountryDefinition } from '@wwi/shared';
 
-// Local TopoJSON: 3240 provinces with 1914-era country mapping
-const PROVINCES_TOPO = '/maps/provinces-1914.geojson';
+const GEOJSON_URL = '/maps/provinces-1914.geojson';
 
-const OCEAN_TOP = '#0f3352';
-const OCEAN_MID = '#0a2340';
-const OCEAN_EDGE = '#030d18';
-const UNCLAIMED_TOP = '#3a3f38';
-const UNCLAIMED_BOTTOM = '#23261f';
-const UNCLAIMED_STROKE = '#14150f';
-const INK_STROKE = '#0c1016';
+const OCEAN_COLOR = '#0a2340';
+const UNCLAIMED_COLOR = '#3a3f38';
+const BORDER_COLOR = '#0c1016';
+const HOVER_BORDER_COLOR = '#e8d8b8';
+const SELECTED_BORDER_COLOR = '#ffd166';
 
-interface ProvinceMapProps {
+interface WorldMapProps {
   countries: CountryDefinition[];
   selectedCountryId?: string | null;
   onSelectCountry?: (country: CountryDefinition | null) => void;
 }
 
-function hexToRgb(hex: string): [number, number, number] {
-  const clean = hex.replace('#', '');
-  const full = clean.length === 3 ? clean.split('').map((c) => c + c).join('') : clean;
-  const bigint = parseInt(full, 16);
-  return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255];
-}
-
-function shade(hex: string, amount: number): string {
-  const [r, g, b] = hexToRgb(hex);
-  const adj = (v: number) =>
-    amount >= 0 ? Math.min(255, Math.round(v + (255 - v) * amount)) : Math.max(0, Math.round(v * (1 + amount)));
-  return `rgb(${adj(r)}, ${adj(g)}, ${adj(b)})`;
-}
-
-// Memoized per-province shape. Only re-renders when ITS OWN selection state
-// or fill/stroke actually changes — not on every tooltip/mouse update, which
-// is what was murdering performance with 3240 provinces on the map.
-interface ProvinceShapeProps {
-  geo: any;
-  fill: string;
-  isSelected: boolean;
-  isClaimed: boolean;
-  onHover: (evt: React.MouseEvent, geo: any) => void;
-  onLeave: () => void;
-  onClick: (geo: any) => void;
-}
-
-const ProvinceShape = React.memo(
-  ({ geo, fill, isSelected, isClaimed, onHover, onLeave, onClick }: ProvinceShapeProps) => {
-    return (
-      <Geography
-        geography={geo}
-        onMouseEnter={(evt) => onHover(evt, geo)}
-        onMouseLeave={onLeave}
-        onClick={() => onClick(geo)}
-        style={{
-          default: {
-            fill,
-            stroke: isSelected ? '#ffd166' : isClaimed ? INK_STROKE : UNCLAIMED_STROKE,
-            strokeWidth: isSelected ? 0.8 : isClaimed ? 0.3 : 0.25,
-            outline: 'none',
-            cursor: isClaimed ? 'pointer' : 'default',
-            transition: 'none',
-          },
-          hover: {
-            fill,
-            stroke: isSelected ? '#ffd166' : isClaimed ? '#e8d8b8' : '#555',
-            strokeWidth: isSelected ? 0.8 : isClaimed ? 0.7 : 0.4,
-            outline: 'none',
-            cursor: isClaimed ? 'pointer' : 'default',
-          },
-          pressed: { fill, outline: 'none' },
-        }}
-      />
-    );
-  },
-  (prev, next) =>
-    prev.geo === next.geo &&
-    prev.fill === next.fill &&
-    prev.isSelected === next.isSelected &&
-    prev.isClaimed === next.isClaimed
-);
-ProvinceShape.displayName = 'ProvinceShape';
-
-const ProvinceMap: React.FC<ProvinceMapProps> = ({ countries, selectedCountryId, onSelectCountry }) => {
+const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSelectCountry }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<MapLibreMap | null>(null);
+  const hoveredIdRef = useRef<string | number | null>(null);
+  const countriesRef = useRef(countries);
+  const onSelectRef = useRef(onSelectCountry);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string; color: string } | null>(null);
+  const [mapReady, setMapReady] = useState(false);
 
-  const byWwiId = useMemo(() => {
-    const map = new Map<string, CountryDefinition>();
-    for (const c of countries) map.set(c.id, c);
-    return map;
+  countriesRef.current = countries;
+  onSelectRef.current = onSelectCountry;
+
+  // Build MapLibre "match" expression: wwi country id -> hex color
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const colorExpression = useMemo((): any => {
+    const expr = ['match', ['get', 'wwi']];
+    for (const c of countries) {
+      expr.push(c.id, c.color);
+    }
+    expr.push(UNCLAIMED_COLOR);
+    return expr;
   }, [countries]);
 
-  // onMouseEnter only (not onMouseMove) — fires once per province entry
-  // instead of on every pixel of mouse travel, which is what caused the
-  // freeze/black-screen: 3240 elements re-rendering on every mouse pixel.
-  const handleGeoEnter = useCallback(
-    (evt: React.MouseEvent, geo: any) => {
-      const wwi = geo.properties?.wwi;
-      const country = wwi ? byWwiId.get(wwi) : undefined;
-      if (!country) {
-        setTooltip(null);
-        return;
-      }
-      const provName = geo.properties?.nameZh || geo.properties?.name || '';
-      setTooltip({
-        x: evt.clientX,
-        y: evt.clientY,
-        text: `${country.flagIcon} ${country.nameZh} · ${provName}`,
-        color: country.color,
+  // ── Initialize map (once) ──────────────────────────────────────
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const map = new MapLibreMap({
+      container: containerRef.current,
+      style: {
+        version: 8,
+        sources: {},
+        layers: [
+          {
+            id: 'background',
+            type: 'background',
+            paint: { 'background-color': OCEAN_COLOR },
+          },
+        ],
+      } as any,
+      center: [10, 25],
+      zoom: 1.2,
+      maxBounds: [
+        [-180, -75],
+        [180, 85],
+      ],
+      attributionControl: false,
+      dragRotate: false,
+      pitchWithRotate: false,
+      keyboard: false,
+    });
+
+    map.on('load', () => {
+      // GeoJSON source — promoteId lets us use feature-state for hover
+      map.addSource('provinces', {
+        type: 'geojson',
+        data: GEOJSON_URL,
+        promoteId: 'id',
       });
-    },
-    [byWwiId]
-  );
 
-  const handleGeoLeave = useCallback(() => setTooltip(null), []);
+      // 1) Province fills — colored by wwi, brightens on hover via feature-state
+      map.addLayer({
+        id: 'province-fill',
+        type: 'fill',
+        source: 'provinces',
+        paint: {
+          'fill-color': colorExpression,
+          'fill-opacity': [
+            'case',
+            ['boolean', ['feature-state', 'hover'], false],
+            1.0,
+            0.78,
+          ],
+        },
+      });
 
-  const handleGeoClick = useCallback(
-    (geo: any) => {
-      const wwi = geo.properties?.wwi;
-      const country = wwi ? byWwiId.get(wwi) : undefined;
-      if (country) onSelectCountry?.(country);
-    },
-    [byWwiId, onSelectCountry]
-  );
+      // 2) Province borders — subtle dark lines
+      map.addLayer({
+        id: 'province-borders',
+        type: 'line',
+        source: 'provinces',
+        paint: {
+          'line-color': BORDER_COLOR,
+          'line-width': 0.3,
+          'line-opacity': 0.5,
+        },
+      });
 
-  const selectedCountry = selectedCountryId ? byWwiId.get(selectedCountryId) : null;
+      // 3) Hover border — only visible on the hovered province (GPU-side feature-state)
+      map.addLayer({
+        id: 'hover-border',
+        type: 'line',
+        source: 'provinces',
+        paint: {
+          'line-color': HOVER_BORDER_COLOR,
+          'line-width': 1.5,
+          'line-opacity': [
+            'case',
+            ['boolean', ['feature-state', 'hover'], false],
+            1.0,
+            0.0,
+          ],
+        },
+      });
+
+      // 4) Selected country border — gold outline, filtered by wwi
+      map.addLayer({
+        id: 'selected-border',
+        type: 'line',
+        source: 'provinces',
+        paint: {
+          'line-color': SELECTED_BORDER_COLOR,
+          'line-width': 2,
+          'line-opacity': 0.9,
+        },
+        filter: ['==', ['get', 'wwi'], '__none__'],
+      });
+
+      setMapReady(true);
+    });
+
+    // ── Hover ──────────────────────────────────────────────────
+    map.on('mousemove', 'province-fill', (e: MapLayerMouseEvent) => {
+      const features = e.features;
+      if (!features || features.length === 0) return;
+      const feat = features[0];
+      const newId = feat.id;
+
+      // Clear previous hover state
+      if (hoveredIdRef.current !== null && hoveredIdRef.current !== newId) {
+        map.setFeatureState(
+          { source: 'provinces', id: hoveredIdRef.current },
+          { hover: false }
+        );
+      }
+
+      // Set new hover state
+      if (newId !== null && newId !== undefined) {
+        map.setFeatureState(
+          { source: 'provinces', id: newId },
+          { hover: true }
+        );
+        hoveredIdRef.current = newId;
+      }
+
+      // Tooltip + cursor
+      const wwi = feat.properties?.wwi;
+      const country = wwi ? countriesRef.current.find((c) => c.id === wwi) : null;
+      if (country) {
+        const provName = feat.properties?.nameZh || feat.properties?.name || '';
+        setTooltip({
+          x: e.point.x,
+          y: e.point.y,
+          text: `${country.flagIcon} ${country.nameZh} · ${provName}`,
+          color: country.color,
+        });
+        map.getCanvas().style.cursor = 'pointer';
+      } else {
+        setTooltip(null);
+        map.getCanvas().style.cursor = 'default';
+      }
+    });
+
+    map.on('mouseleave', 'province-fill', () => {
+      if (hoveredIdRef.current !== null) {
+        map.setFeatureState(
+          { source: 'provinces', id: hoveredIdRef.current },
+          { hover: false }
+        );
+        hoveredIdRef.current = null;
+      }
+      setTooltip(null);
+      map.getCanvas().style.cursor = '';
+    });
+
+    // ── Click ──────────────────────────────────────────────────
+    map.on('click', 'province-fill', (e: MapLayerMouseEvent) => {
+      const features = e.features;
+      if (!features || features.length === 0) return;
+      const wwi = features[0].properties?.wwi;
+      const country = wwi ? countriesRef.current.find((c) => c.id === wwi) : null;
+      if (country) onSelectRef.current?.(country);
+    });
+
+    mapRef.current = map;
+
+    return () => {
+      map.remove();
+      mapRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Update fill colors when countries change ──────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !map.getLayer('province-fill')) return;
+    map.setPaintProperty('province-fill', 'fill-color', colorExpression);
+  }, [colorExpression, mapReady]);
+
+  // ── Update selected border filter ─────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !map.getLayer('selected-border')) return;
+    map.setFilter('selected-border', [
+      '==',
+      ['get', 'wwi'],
+      selectedCountryId || '__none__',
+    ] as any);
+  }, [selectedCountryId, mapReady]);
+
+  const selectedCountry = selectedCountryId
+    ? countries.find((c) => c.id === selectedCountryId)
+    : null;
 
   return (
     <div
@@ -141,57 +241,11 @@ const ProvinceMap: React.FC<ProvinceMapProps> = ({ countries, selectedCountryId,
         borderRadius: '6px',
         overflow: 'hidden',
         border: '1px solid var(--border-color)',
-        background: `radial-gradient(ellipse at 42% 30%, ${OCEAN_TOP} 0%, ${OCEAN_MID} 55%, ${OCEAN_EDGE} 100%)`,
-        boxShadow: 'inset 0 0 60px rgba(0,0,0,0.55)',
       }}
     >
-      <ComposableMap
-        projection="geoMercator"
-        projectionConfig={{ scale: 140, center: [10, 20] }}
-        style={{ width: '100%', height: '100%' }}
-      >
-        <defs>
-          {countries.map((c) => (
-            <linearGradient id={`grad-${c.id}`} key={c.id} x1="15%" y1="0%" x2="85%" y2="100%">
-              <stop offset="0%" stopColor={shade(c.color, 0.3)} />
-              <stop offset="50%" stopColor={c.color} />
-              <stop offset="100%" stopColor={shade(c.color, -0.2)} />
-            </linearGradient>
-          ))}
-          <linearGradient id="grad-unclaimed" x1="15%" y1="0%" x2="85%" y2="100%">
-            <stop offset="0%" stopColor={UNCLAIMED_TOP} />
-            <stop offset="100%" stopColor={UNCLAIMED_BOTTOM} />
-          </linearGradient>
-        </defs>
+      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
-        <ZoomableGroup zoom={1} minZoom={1} maxZoom={12} translateExtent={[[-100, -100], [900, 600]]}>
-          <Geographies geography={PROVINCES_TOPO}>
-            {({ geographies }) =>
-              geographies.map((geo) => {
-                const wwi = geo.properties?.wwi || '';
-                const country = wwi ? byWwiId.get(wwi) : undefined;
-                const isClaimed = !!country;
-                const isSelected = wwi === selectedCountryId;
-                const fill = country ? `url(#grad-${wwi})` : 'url(#grad-unclaimed)';
-
-                return (
-                  <ProvinceShape
-                    key={geo.rsmKey}
-                    geo={geo}
-                    fill={fill}
-                    isSelected={isSelected}
-                    isClaimed={isClaimed}
-                    onHover={handleGeoEnter}
-                    onLeave={handleGeoLeave}
-                    onClick={handleGeoClick}
-                  />
-                );
-              })
-            }
-          </Geographies>
-        </ZoomableGroup>
-      </ComposableMap>
-
+      {/* Vignette */}
       <div
         style={{
           position: 'absolute',
@@ -201,13 +255,33 @@ const ProvinceMap: React.FC<ProvinceMapProps> = ({ countries, selectedCountryId,
         }}
       />
 
+      {/* Selected country badge */}
+      {selectedCountry && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '0.6rem',
+            left: '0.6rem',
+            background: 'rgba(10,14,20,0.85)',
+            border: `1px solid ${SELECTED_BORDER_COLOR}`,
+            borderRadius: '4px',
+            padding: '0.4rem 0.8rem',
+            fontSize: '0.85rem',
+            color: '#fff',
+          }}
+        >
+          已選取: {selectedCountry.flagIcon} {selectedCountry.nameZh}
+        </div>
+      )}
+
+      {/* Tooltip */}
       {tooltip && (
         <div
           style={{
-            position: 'fixed',
+            position: 'absolute',
             left: tooltip.x + 12,
             top: tooltip.y + 12,
-            background: 'rgba(10, 14, 20, 0.92)',
+            background: 'rgba(10,14,20,0.92)',
             border: `1px solid ${tooltip.color}`,
             borderRadius: '4px',
             padding: '0.4rem 0.7rem',
@@ -222,24 +296,7 @@ const ProvinceMap: React.FC<ProvinceMapProps> = ({ countries, selectedCountryId,
         </div>
       )}
 
-      {selectedCountry && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '0.6rem',
-            left: '0.6rem',
-            background: 'rgba(10, 14, 20, 0.85)',
-            border: '1px solid var(--accent-gold)',
-            borderRadius: '4px',
-            padding: '0.4rem 0.8rem',
-            fontSize: '0.85rem',
-            color: '#fff',
-          }}
-        >
-          已選取: {selectedCountry.flagIcon} {selectedCountry.nameZh}
-        </div>
-      )}
-
+      {/* Hint */}
       <div
         style={{
           position: 'absolute',
@@ -250,6 +307,7 @@ const ProvinceMap: React.FC<ProvinceMapProps> = ({ countries, selectedCountryId,
           background: 'rgba(0,0,0,0.4)',
           padding: '0.25rem 0.5rem',
           borderRadius: '4px',
+          pointerEvents: 'none',
         }}
       >
         拖曳平移 · 滾輪縮放 · 點擊省份選擇國家
@@ -258,4 +316,4 @@ const ProvinceMap: React.FC<ProvinceMapProps> = ({ countries, selectedCountryId,
   );
 };
 
-export default ProvinceMap;
+export default WorldMap;
