@@ -6,6 +6,7 @@ import {
   SIDE_LABELS_ZH,
 } from '@wwi/shared';
 import WorldMap from '../components/WorldMap';
+import ErrorBoundary from '../components/ErrorBoundary';
 import { getApiUrl, getSocketUrl } from '../lib/api';
 
 const ORDER_TYPE_LABELS: Record<OrderType, string> = {
@@ -347,11 +348,13 @@ const Game: React.FC = () => {
                   </div>
                 )}
               </div>
-              <WorldMap
-                countries={WWI_COUNTRIES}
-                selectedCountryId={selectedCountry?.id}
-                onSelectCountry={handleSelectCountry}
-              />
+              <ErrorBoundary>
+                <WorldMap
+                  countries={WWI_COUNTRIES}
+                  selectedCountryId={selectedCountry?.id}
+                  onSelectCountry={handleSelectCountry}
+                />
+              </ErrorBoundary>
             </div>
 
             {/* Order Form */}

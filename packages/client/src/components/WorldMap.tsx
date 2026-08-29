@@ -25,6 +25,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
   const onSelectRef = useRef(onSelectCountry);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string; color: string } | null>(null);
   const [mapReady, setMapReady] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
 
   countriesRef.current = countries;
   onSelectRef.current = onSelectCountry;
@@ -44,7 +45,23 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const map = new MapLibreMap({
+    // Guard: bail out cleanly with a fallback UI instead of crashing the
+    // whole app if WebGL isn't available in this browser.
+    try {
+      const testCanvas = document.createElement('canvas');
+      const gl = testCanvas.getContext('webgl2') || testCanvas.getContext('webgl');
+      if (!gl) {
+        setMapError('此瀏覽器不支援 WebGL，無法顯示地圖。');
+        return;
+      }
+    } catch {
+      setMapError('此瀏覽器不支援 WebGL，無法顯示地圖。');
+      return;
+    }
+
+    let map: MapLibreMap;
+    try {
+      map = new MapLibreMap({
       container: containerRef.current,
       style: {
         version: 8,
@@ -201,7 +218,13 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
       if (country) onSelectRef.current?.(country);
     });
 
-    mapRef.current = map;
+      mapRef.current = map;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[WorldMap] MapLibre init failed:', err);
+      setMapError('地圖初始化失敗，請重新整理頁面。');
+      return;
+    }
 
     return () => {
       map.remove();
@@ -244,6 +267,27 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
       }}
     >
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+
+      {mapError && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.5rem',
+            background: 'rgba(10,14,20,0.9)',
+            color: 'var(--text-muted)',
+            textAlign: 'center',
+            padding: '1rem',
+          }}
+        >
+          <p>⚠️ 地圖無法載入</p>
+          <p style={{ fontSize: '0.8rem' }}>{mapError}</p>
+        </div>
+      )}
 
       {/* Vignette */}
       <div
