@@ -290,3 +290,61 @@ router.post('/:id/ready', authMiddleware, async (req: any, res) => {
 });
 
 export default router;
+
+// === Player Unit Design ===
+import { UnitDesignerService } from '../services/unit-designer.js';
+const playerUnitDesigner = new UnitDesignerService();
+
+// GET /api/games/my-units — list current player's custom units
+router.get('/my-units', authMiddleware, async (req: any, res) => {
+  try {
+    const game = await findCurrentGame();
+    if (!game) return res.status(404).json({ error: '找不到進行中的戰局' });
+
+    const myPlayer = game.players.find((p) => p.userId === req.user.id);
+    if (!myPlayer) return res.status(403).json({ error: '你尚未選擇國家' });
+
+    const units = await prisma.customUnit.findMany({
+      where: { OR: [{ gameId: game.id }, { gameId: null }] },
+      orderBy: { category: 'asc' },
+    });
+    res.json({ units, countryId: myPlayer.countryId });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/games/design-unit — player designs their own unit
+router.post('/design-unit', authMiddleware, async (req: any, res) => {
+  try {
+    const { prompt, category } = req.body;
+    if (!prompt || !category) return res.status(400).json({ error: '必須提供提示詞和兵種類別' });
+
+    const game = await findCurrentGame();
+    if (!game) return res.status(404).json({ error: '找不到進行中的戰局' });
+
+    const myPlayer = game.players.find((p) => p.userId === req.user.id);
+    if (!myPlayer) return res.status(403).json({ error: '你尚未選擇國家' });
+
+    const result = await playerUnitDesigner.designUnit({ prompt, category, gameId: game.id });
+
+    if (result.success) {
+      res.json({ success: true, unit: result.unit });
+    } else {
+      res.status(400).json({ error: result.error });
+    }
+  } catch (error: any) {
+    console.error('[Games] design-unit error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE /api/games/delete-unit/:id — player deletes their own unit
+router.delete('/delete-unit/:id', authMiddleware, async (req: any, res) => {
+  try {
+    await prisma.customUnit.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { WWI_COUNTRIES, CountryDefinition, SIDE_LABELS_ZH } from '@wwi/shared';
 import { getApiUrl } from '../lib/api';
+import WorldMap from '../components/WorldMap';
 
 interface CurrentGameInfo {
   game: { id: string; name: string; status: string; currentTurn: number; createdAt: string } | null;
@@ -14,34 +15,23 @@ interface CurrentGameInfo {
 const Lobby: React.FC = () => {
   const navigate = useNavigate();
   const [info, setInfo] = useState<CurrentGameInfo | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [joining, setJoining] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
+  const [clickedCountry, setClickedCountry] = useState<CountryDefinition | null>(null);
 
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch (e) {
-        // ignore
-      }
-    }
+    if (storedUser) { try { setUser(JSON.parse(storedUser)); } catch {} }
   }, []);
 
   const fetchCurrent = useCallback(async () => {
     try {
       const res = await fetch(getApiUrl('/api/games/current'), { credentials: 'include' });
-      if (res.ok) {
-        const data = await res.json();
-        setInfo(data);
-      }
-    } catch (err) {
-      console.error('載入戰局狀態失敗', err);
-    } finally {
-      setLoading(false);
-    }
+      if (res.ok) { const data = await res.json(); setInfo(data); }
+    } catch (err) { console.error('載入戰局狀態失敗', err); }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -50,16 +40,28 @@ const Lobby: React.FC = () => {
     return () => clearInterval(interval);
   }, [fetchCurrent]);
 
-  const handleJoin = async (countryId: string) => {
-    if (joining) return;
-    setJoining(countryId);
+  const handleSelectCountry = (country: CountryDefinition | null) => {
+    if (!country) { setClickedCountry(null); return; }
+    const takenSet = new Set(info?.takenCountryIds || []);
+    if (takenSet.has(country.id)) {
+      setError(`${country.flagIcon} ${country.nameZh} 已被選走，請選擇其他國家`);
+      setClickedCountry(null);
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+    setError(null);
+    setClickedCountry(country);
+  };
+
+  const handleConfirmJoin = async () => {
+    if (!clickedCountry || joining) return;
+    setJoining(true);
     setError(null);
     try {
       const res = await fetch(getApiUrl('/api/games/join'), {
-        method: 'POST',
-        credentials: 'include',
+        method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ countryId }),
+        body: JSON.stringify({ countryId: clickedCountry.id }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -70,14 +72,12 @@ const Lobby: React.FC = () => {
         localStorage.removeItem('user');
         setTimeout(() => navigate('/'), 1500);
       } else {
-        setError(data.error || data.message || '選擇國家失敗');
+        setError(data.error || '選擇國家失敗');
+        setClickedCountry(null);
         fetchCurrent();
       }
-    } catch (err) {
-      setError('連線失敗,請再試一次');
-    } finally {
-      setJoining(null);
-    }
+    } catch { setError('連線失敗,請再試一次'); }
+    finally { setJoining(false); }
   };
 
   const handleLogout = async () => {
@@ -127,12 +127,9 @@ const Lobby: React.FC = () => {
 
             {error && (
               <div style={{
-                padding: '0.75rem 1rem',
-                marginBottom: '1rem',
-                backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                border: '1px solid #ef4444',
-                borderRadius: '4px',
-                color: '#ef4444'
+                padding: '0.75rem 1rem', marginBottom: '1rem',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444',
+                borderRadius: '4px', color: '#ef4444'
               }}>
                 {error}
               </div>
@@ -147,6 +144,9 @@ const Lobby: React.FC = () => {
                     return c ? `${c.flagIcon} ${c.nameZh}` : info.myCountryId;
                   })()}
                 </h3>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+                  {SIDE_LABELS_ZH[WWI_COUNTRIES.find((x) => x.id === info.myCountryId)?.side || 'neutral']}
+                </p>
               </div>
             ) : isFull ? (
               <div className="card" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
@@ -155,47 +155,65 @@ const Lobby: React.FC = () => {
               </div>
             ) : (
               <>
-                <h3 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
-                  選擇你的國家 — 先搶先贏!
-                </h3>
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-                  gap: '0.75rem'
-                }}>
-                  {WWI_COUNTRIES.map((c: CountryDefinition) => {
-                    const taken = takenSet.has(c.id);
-                    return (
-                      <button
-                        key={c.id}
-                        disabled={taken || !!joining}
-                        onClick={() => handleJoin(c.id)}
-                        className="card"
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          textAlign: 'left',
-                          cursor: taken ? 'not-allowed' : 'pointer',
-                          opacity: taken ? 0.4 : 1,
-                          border: '1px solid var(--border-color)',
-                          padding: '0.75rem 1rem',
-                        }}
-                      >
-                        <span>
-                          {c.flagIcon} {c.nameZh}
-                          <br />
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                            {SIDE_LABELS_ZH[c.side]}
-                          </span>
-                        </span>
-                        <span style={{ fontSize: '0.8rem', color: taken ? '#ef4444' : 'var(--accent-gold)' }}>
-                          {joining === c.id ? '選取中...' : taken ? '已被選走' : '選擇'}
-                        </span>
-                      </button>
-                    );
-                  })}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <h3 style={{ fontSize: '1.1rem' }}>🌍 點選地圖上的國家來選擇 — 先搶先贏!</h3>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    <span style={{ display: 'inline-block', width: '12px', height: '12px', backgroundColor: '#4a7d4a', borderRadius: '2px', marginRight: '4px' }}></span>可選擇
+                    <span style={{ display: 'inline-block', width: '12px', height: '12px', backgroundColor: '#2a3a2a', borderRadius: '2px', marginLeft: '0.75rem', marginRight: '4px' }}></span>已被選走
+                  </span>
                 </div>
+
+                <WorldMap
+                  countries={WWI_COUNTRIES as CountryDefinition[]}
+                  takenCountryIds={info.takenCountryIds}
+                  selectedCountryId={clickedCountry?.id || null}
+                  onSelectCountry={handleSelectCountry}
+                />
+
+                {clickedCountry && (
+                  <div style={{
+                    marginTop: '1rem', padding: '1rem', borderRadius: '6px',
+                    border: '1px solid var(--accent-gold)', backgroundColor: 'rgba(255, 209, 102, 0.08)',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  }}>
+                    <div>
+                      <span style={{ fontSize: '1.2rem', fontWeight: 700 }}>
+                        {clickedCountry.flagIcon} {clickedCountry.nameZh}
+                      </span>
+                      <span style={{ marginLeft: '0.75rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                        {SIDE_LABELS_ZH[clickedCountry.side]}
+                      </span>
+                    </div>
+                    <button
+                      className="btn-primary"
+                      onClick={handleConfirmJoin}
+                      disabled={joining}
+                      style={{ padding: '0.5rem 2rem' }}
+                    >
+                      {joining ? '動員中...' : '確認動員'}
+                    </button>
+                  </div>
+                )}
+
+                {/* Player list */}
+                {info.players.length > 0 && (
+                  <div style={{ marginTop: '1.5rem' }}>
+                    <h4 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>已參戰指揮官</h4>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      {info.players.map((p) => {
+                        const c = WWI_COUNTRIES.find((x) => x.id === p.countryId);
+                        return (
+                          <span key={p.countryId} style={{
+                            fontSize: '0.8rem', padding: '0.25rem 0.6rem', borderRadius: '12px',
+                            border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-card)',
+                          }}>
+                            {c?.flagIcon || '🏳️'} {p.username}{p.isAI ? ' 🤖' : ''}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </>

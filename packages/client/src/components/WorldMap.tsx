@@ -23,14 +23,28 @@ interface WorldMapProps {
   selectedCountryId?: string | null;
   onSelectCountry?: (country: CountryDefinition | null) => void;
   mapSelectMode?: 'target' | 'from';
+  takenCountryIds?: string[]; // countries already taken — shown dimmed, not clickable
 }
 
-const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSelectCountry, mapSelectMode }) => {
+// Darken a hex color by mixing with black at the given ratio
+function dimColor(hex: string, ratio: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const dr = Math.round(r * (1 - ratio));
+  const dg = Math.round(g * (1 - ratio));
+  const db = Math.round(b * (1 - ratio));
+  return `#${dr.toString(16).padStart(2,'0')}${dg.toString(16).padStart(2,'0')}${db.toString(16).padStart(2,'0')}`;
+}
+
+const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSelectCountry, mapSelectMode, takenCountryIds }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const hoveredIdRef = useRef<string | number | null>(null);
   const countriesRef = useRef(countries);
   const onSelectRef = useRef(onSelectCountry);
+  const takenRef = useRef<string[]>(takenCountryIds || []);
+  takenRef.current = takenCountryIds || [];
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string; color: string } | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -39,14 +53,21 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
   onSelectRef.current = onSelectCountry;
 
   // Build MapLibre "match" expression: wwi country id -> hex color
+  // Taken countries are dimmed (50% darker)
   const colorExpression = useMemo((): any => {
+    const takenSet = new Set(takenCountryIds || []);
     const expr = ['match', ['get', 'wwi']];
     for (const c of countries) {
-      expr.push(c.id, c.color);
+      // If taken, darken the color by mixing with black
+      if (takenSet.has(c.id)) {
+        expr.push(c.id, dimColor(c.color, 0.45));
+      } else {
+        expr.push(c.id, c.color);
+      }
     }
     expr.push(UNCLAIMED_COLOR);
     return expr;
-  }, [countries]);
+  }, [countries, takenCountryIds]);
 
   // ── Initialize map (once) ──────────────────────────────────────
   useEffect(() => {
@@ -238,7 +259,10 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
           if (!features || features.length === 0) return;
           const wwi = features[0].properties?.wwi;
           const country = wwi ? countriesRef.current.find((c) => c.id === wwi) : null;
-          if (country) onSelectRef.current?.(country);
+          if (country) {
+            // Check if taken — still fire callback so parent can show "taken" message
+            onSelectRef.current?.(country);
+          }
         });
 
         setMapReady(true);

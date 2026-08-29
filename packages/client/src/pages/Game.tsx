@@ -83,6 +83,52 @@ const Game: React.FC = () => {
   const [lastResolution, setLastResolution] = useState<any>(null);
   const [showResolutionModal, setShowResolutionModal] = useState(false);
 
+  // Unit design state
+  const [myUnits, setMyUnits] = useState<any[]>([]);
+  const [unitDesigning, setUnitDesigning] = useState(false);
+  const [unitDesignPrompt, setUnitDesignPrompt] = useState('');
+  const [unitDesignCategory, setUnitDesignCategory] = useState('infantry');
+  const [unitError, setUnitError] = useState('');
+  const [unitSuccess, setUnitSuccess] = useState('');
+
+  const CATEGORY_LABELS: Record<string, string> = {
+    infantry: '步兵', cavalry: '騎兵', artillery: '砲兵', fleet: '艦隊', armored: '裝甲',
+  };
+  const CATEGORIES = ['infantry', 'cavalry', 'artillery', 'fleet', 'armored'];
+
+  const loadMyUnits = useCallback(async () => {
+    try {
+      const res = await fetch(getApiUrl('/api/games/my-units'), { credentials: 'include' });
+      if (res.ok) { const data = await res.json(); setMyUnits(data.units || []); }
+    } catch {}
+  }, []);
+
+  const handleDesignUnit = async () => {
+    if (!unitDesignPrompt.trim() || unitDesigning) return;
+    setUnitDesigning(true); setUnitError(''); setUnitSuccess('');
+    try {
+      const res = await fetch(getApiUrl('/api/games/design-unit'), {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: unitDesignPrompt, category: unitDesignCategory }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setUnitSuccess(`✓ 兵種「${data.unit.nameZh}」設計成功！`);
+        setUnitDesignPrompt('');
+        await loadMyUnits();
+      } else { setUnitError(data.error || '設計失敗'); }
+    } catch (e: any) { setUnitError('連線失敗: ' + e.message); }
+    finally { setUnitDesigning(false); }
+  };
+
+  const handleDeleteUnit = async (id: string) => {
+    try {
+      await fetch(getApiUrl(`/api/games/delete-unit/${id}`), { method: 'DELETE', credentials: 'include' });
+      await loadMyUnits();
+    } catch {}
+  };
+
   // Keep track of my country id in a ref for socket event handlers
   const myCountryIdRef = useRef<string | null>(null);
 
@@ -95,6 +141,7 @@ const Game: React.FC = () => {
 
   const fetchState = useCallback(async () => {
     if (!gameId) return;
+    loadMyUnits();
     try {
       const res = await fetch(getApiUrl(`/api/games/${gameId}/state`), { credentials: 'include' });
       if (res.ok) {
@@ -943,6 +990,52 @@ const Game: React.FC = () => {
                 />
                 <button type="submit" className="btn-secondary">送出</button>
               </form>
+            </div>
+
+            {/* Unit Design Panel */}
+            <div className="card">
+              <h3 style={{ marginBottom: '0.5rem' }}>⚔️ 兵種設計工坊</h3>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                輸入提示詞讓 AI 為你設計獨特兵種（每類最多 5 種）
+              </p>
+              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+                <select
+                  value={unitDesignCategory}
+                  onChange={(e) => setUnitDesignCategory(e.target.value)}
+                  style={{ padding: '0.35rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg)', color: 'var(--text)', fontSize: '0.8rem' }}
+                >
+                  {CATEGORIES.map((c) => {
+                    const count = myUnits.filter((u) => u.category === c).length;
+                    return <option key={c} value={c}>{CATEGORY_LABELS[c]}（{count}/5）</option>;
+                  })}
+                </select>
+                <input
+                  type="text"
+                  placeholder="例：壕溝突擊隊，配備刺刀和手榴彈"
+                  value={unitDesignPrompt}
+                  onChange={(e) => setUnitDesignPrompt(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !unitDesigning) handleDesignUnit(); }}
+                  style={{ flex: 1, minWidth: '120px', padding: '0.35rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg)', color: 'var(--text)', fontSize: '0.8rem' }}
+                />
+                <button onClick={handleDesignUnit} disabled={unitDesigning || !unitDesignPrompt.trim()} className="btn-primary" style={{ padding: '0.35rem 0.8rem', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                  {unitDesigning ? '⏳...' : '設計'}
+                </button>
+              </div>
+              {unitError && <p style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '0.25rem' }}>✗ {unitError}</p>}
+              {unitSuccess && <p style={{ color: '#22c55e', fontSize: '0.75rem', marginTop: '0.25rem' }}>{unitSuccess}</p>}
+              {myUnits.length > 0 && (
+                <div style={{ marginTop: '0.5rem', maxHeight: '200px', overflowY: 'auto' }}>
+                  {myUnits.map((u) => (
+                    <div key={u.id} style={{ padding: '0.4rem 0.5rem', borderBottom: '1px solid var(--bg-tertiary)', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ flex: 1 }}>
+                        <span style={{ fontWeight: 600 }}>{CATEGORY_LABELS[u.category] || u.category} | {u.nameZh}</span>
+                        <span style={{ color: 'var(--text-muted)', marginLeft: '0.5rem', fontSize: '0.7rem' }}>攻{u.attack} 防{u.defense} 💰{u.costGold}</span>
+                      </div>
+                      <button onClick={() => handleDeleteUnit(u.id)} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', padding: '0 0.25rem' }}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
