@@ -172,6 +172,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
       name: game.name,
       status: game.status,
       currentTurn: game.currentTurn,
+      scenarioId: game.scenarioId,
       maxPlayers: getTotalCountries(game.scenarioId || 'wwi-global'),
       turnIntervalHours: game.turnIntervalHrs,
       lastTurnResolvedAt: game.lastTurnAt,
@@ -217,6 +218,7 @@ router.get('/:id/state', authMiddleware, async (req: any, res) => {
         status: game.status,
         currentTurn: game.currentTurn,
         nextTurnAt: game.nextTurnAt,
+        scenarioId: game.scenarioId,
       },
       myCountryId: myPlayer ? myPlayer.countryId : null,
       players: game.players.map((p) => ({
