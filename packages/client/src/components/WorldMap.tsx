@@ -7,11 +7,9 @@ import {
   ZoomableGroup,
 } from 'react-simple-maps';
 import type { CountryDefinition } from '@wwi/shared';
-import { ISO_NUMERIC_TO_ALPHA3 } from '@wwi/shared';
 
-// Real-world country boundaries (50m resolution = much crisper coastlines
-// than the 110m version), served from a CDN as TopoJSON.
-const WORLD_TOPOJSON_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json';
+// Local TopoJSON: 3240 provinces with 1914-era country mapping
+const PROVINCES_TOPO = '/maps/provinces-1914.topojson';
 
 const OCEAN_TOP = '#0f3352';
 const OCEAN_MID = '#0a2340';
@@ -21,7 +19,7 @@ const UNCLAIMED_BOTTOM = '#23261f';
 const UNCLAIMED_STROKE = '#14150f';
 const INK_STROKE = '#0c1016';
 
-interface WorldMapProps {
+interface ProvinceMapProps {
   countries: CountryDefinition[];
   selectedCountryId?: string | null;
   onSelectCountry?: (country: CountryDefinition | null) => void;
@@ -41,26 +39,54 @@ function shade(hex: string, amount: number): string {
   return `rgb(${adj(r)}, ${adj(g)}, ${adj(b)})`;
 }
 
-const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSelectCountry }) => {
-  const [hoveredAlpha3, setHoveredAlpha3] = useState<string | null>(null);
-  const [tooltip, setTooltip] = useState<{ x: number; y: number; country: CountryDefinition } | null>(null);
+const ProvinceMap: React.FC<ProvinceMapProps> = ({ countries, selectedCountryId, onSelectCountry }) => {
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string; color: string } | null>(null);
 
-  const byAlpha3 = useMemo(() => {
+  // wwi country ID -> CountryDefinition
+  const byWwiId = useMemo(() => {
     const map = new Map<string, CountryDefinition>();
     for (const c of countries) {
-      if (!map.has(c.code)) map.set(c.code, c);
+      map.set(c.id, c);
     }
     return map;
   }, [countries]);
 
-  const selectedCountry = selectedCountryId ? countries.find((c) => c.id === selectedCountryId) : null;
+  // Pre-compute gradient IDs
+  const gradientIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const c of countries) ids.add(c.id);
+    return ids;
+  }, [countries]);
+
+  const handleGeoEnter = (evt: React.MouseEvent, geo: any) => {
+    const wwi = geo.properties?.wwi;
+    if (!wwi) return;
+    const country = byWwiId.get(wwi);
+    if (!country) return;
+    const provName = geo.properties?.nameZh || geo.properties?.name || '';
+    setTooltip({
+      x: evt.clientX,
+      y: evt.clientY,
+      text: `${country.flagIcon} ${country.nameZh} · ${provName}`,
+      color: country.color,
+    });
+  };
+
+  const handleGeoClick = (geo: any) => {
+    const wwi = geo.properties?.wwi;
+    if (!wwi) return;
+    const country = byWwiId.get(wwi);
+    if (country) onSelectCountry?.(country);
+  };
+
+  const selectedCountry = selectedCountryId ? byWwiId.get(selectedCountryId) : null;
 
   return (
     <div
       style={{
         position: 'relative',
         width: '100%',
-        height: '560px',
+        height: '600px',
         borderRadius: '6px',
         overflow: 'hidden',
         border: '1px solid var(--border-color)',
@@ -69,8 +95,8 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
     >
       <ComposableMap
         projection="geoMercator"
-        projectionConfig={{ scale: 135, center: [10, 20] }}
-        style={{ width: '100%', height: '100%', filter: 'saturate(1.2) contrast(1.08)' }}
+        projectionConfig={{ scale: 140, center: [10, 20] }}
+        style={{ width: '100%', height: '100%', filter: 'saturate(1.15) contrast(1.06)' }}
       >
         <defs>
           <radialGradient id="ocean-gradient" cx="42%" cy="30%" r="85%">
@@ -79,26 +105,20 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
             <stop offset="100%" stopColor={OCEAN_EDGE} />
           </radialGradient>
 
-          {/* Paper/canvas grain, purely procedural (no external assets) for a
-              hand-painted grand-strategy atlas feel. */}
           <filter id="paper-grain" x="0%" y="0%" width="100%" height="100%">
             <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="noise" />
-            <feColorMatrix in="noise" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.05 0" />
+            <feColorMatrix in="noise" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.04 0" />
           </filter>
 
           <filter id="land-shadow" x="-30%" y="-30%" width="160%" height="160%">
-            <feDropShadow dx="0" dy="0.8" stdDeviation="0.9" floodColor="#000000" floodOpacity="0.55" />
-          </filter>
-
-          <filter id="select-glow" x="-60%" y="-60%" width="220%" height="220%">
-            <feDropShadow dx="0" dy="0" stdDeviation="2.2" floodColor="#ffd166" floodOpacity="0.95" />
+            <feDropShadow dx="0" dy="0.6" stdDeviation="0.6" floodColor="#000000" floodOpacity="0.45" />
           </filter>
 
           {countries.map((c) => (
             <linearGradient id={`grad-${c.id}`} key={c.id} x1="15%" y1="0%" x2="85%" y2="100%">
-              <stop offset="0%" stopColor={shade(c.color, 0.32)} />
-              <stop offset="45%" stopColor={c.color} />
-              <stop offset="100%" stopColor={shade(c.color, -0.22)} />
+              <stop offset="0%" stopColor={shade(c.color, 0.3)} />
+              <stop offset="50%" stopColor={c.color} />
+              <stop offset="100%" stopColor={shade(c.color, -0.2)} />
             </linearGradient>
           ))}
           <linearGradient id="grad-unclaimed" x1="15%" y1="0%" x2="85%" y2="100%">
@@ -109,61 +129,46 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
 
         <rect x="-50%" y="-50%" width="200%" height="200%" fill="url(#ocean-gradient)" />
 
-        <ZoomableGroup zoom={1} minZoom={1} maxZoom={9} translateExtent={[[-60, -60], [860, 560]]}>
-          <Graticule stroke="rgba(140,180,220,0.10)" strokeWidth={0.4} step={[15, 15]} />
+        <ZoomableGroup zoom={1} minZoom={1} maxZoom={12} translateExtent={[[-100, -100], [900, 600]]}>
+          <Graticule stroke="rgba(140,180,220,0.08)" strokeWidth={0.4} step={[15, 15]} />
 
-          <Geographies geography={WORLD_TOPOJSON_URL}>
+          <Geographies geography={PROVINCES_TOPO}>
             {({ geographies }) =>
               geographies.map((geo) => {
-                const alpha3 = ISO_NUMERIC_TO_ALPHA3[String(geo.id)];
-                const country = alpha3 ? byAlpha3.get(alpha3) : undefined;
-                const isSelected = !!country && country.id === selectedCountryId;
-                const fill = country ? `url(#grad-${country.id})` : 'url(#grad-unclaimed)';
+                const wwi = geo.properties?.wwi || '';
+                const country = gradientIds.has(wwi) ? byWwiId.get(wwi) : null;
+                const isSelected = wwi === selectedCountryId;
+                const fill = country ? `url(#grad-${wwi})` : 'url(#grad-unclaimed)';
 
                 return (
                   <Geography
                     key={geo.rsmKey}
                     geography={geo}
-                    onMouseEnter={(evt) => {
-                      if (country) {
-                        setHoveredAlpha3(alpha3);
-                        setTooltip({ x: evt.clientX, y: evt.clientY, country });
-                      }
-                    }}
-                    onMouseMove={(evt) => {
-                      if (country) setTooltip({ x: evt.clientX, y: evt.clientY, country });
-                    }}
-                    onMouseLeave={() => {
-                      setHoveredAlpha3(null);
-                      setTooltip(null);
-                    }}
-                    onClick={() => {
-                      if (country) onSelectCountry?.(country);
-                    }}
+                    onMouseEnter={(evt) => handleGeoEnter(evt, geo)}
+                    onMouseMove={(evt) => handleGeoEnter(evt, geo)}
+                    onMouseLeave={() => setTooltip(null)}
+                    onClick={() => handleGeoClick(geo)}
                     style={{
                       default: {
                         fill,
                         stroke: isSelected ? '#ffd166' : country ? INK_STROKE : UNCLAIMED_STROKE,
-                        strokeWidth: isSelected ? 1.1 : country ? 0.55 : 0.4,
+                        strokeWidth: isSelected ? 0.8 : country ? 0.3 : 0.25,
                         outline: 'none',
                         cursor: country ? 'pointer' : 'default',
-                        filter: isSelected ? 'url(#select-glow)' : country ? 'url(#land-shadow)' : 'none',
-                        transition: 'stroke 0.15s ease',
+                        filter: country ? 'url(#land-shadow)' : 'none',
+                        transition: 'stroke 0.12s ease',
                       },
                       hover: {
                         fill,
-                        stroke: isSelected ? '#ffd166' : country ? '#f4e9d0' : '#555',
-                        strokeWidth: isSelected ? 1.1 : country ? 1 : 0.5,
+                        stroke: isSelected ? '#ffd166' : country ? '#e8d8b8' : '#555',
+                        strokeWidth: isSelected ? 0.8 : country ? 0.7 : 0.4,
                         outline: 'none',
                         cursor: country ? 'pointer' : 'default',
                         filter: country
-                          ? `${isSelected ? 'url(#select-glow)' : 'url(#land-shadow)'} brightness(1.18)`
+                          ? `${isSelected ? '' : 'url(#land-shadow)'} brightness(1.2)`
                           : 'none',
                       },
-                      pressed: {
-                        fill,
-                        outline: 'none',
-                      },
+                      pressed: { fill, outline: 'none' },
                     }}
                   />
                 );
@@ -172,7 +177,6 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
           </Geographies>
         </ZoomableGroup>
 
-        {/* Procedural paper-grain overlay for texture, blended subtly over everything */}
         <rect
           x="-50%"
           y="-50%"
@@ -183,7 +187,6 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
         />
       </ComposableMap>
 
-      {/* Vignette */}
       <div
         style={{
           position: 'absolute',
@@ -200,7 +203,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
             left: tooltip.x + 12,
             top: tooltip.y + 12,
             background: 'rgba(10, 14, 20, 0.92)',
-            border: '1px solid var(--border-color)',
+            border: `1px solid ${tooltip.color}`,
             borderRadius: '4px',
             padding: '0.4rem 0.7rem',
             fontSize: '0.8rem',
@@ -210,7 +213,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
             whiteSpace: 'nowrap',
           }}
         >
-          {tooltip.country.flagIcon} {tooltip.country.nameZh}
+          {tooltip.text}
         </div>
       )}
 
@@ -232,11 +235,22 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
         </div>
       )}
 
-      <div style={{ position: 'absolute', bottom: '0.5rem', right: '0.5rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)', background: 'rgba(0,0,0,0.4)', padding: '0.25rem 0.5rem', borderRadius: '4px' }}>
-        拖曳平移 · 滾輪縮放 · 點擊選擇國家
+      <div
+        style={{
+          position: 'absolute',
+          bottom: '0.5rem',
+          right: '0.5rem',
+          fontSize: '0.75rem',
+          color: 'rgba(255,255,255,0.6)',
+          background: 'rgba(0,0,0,0.4)',
+          padding: '0.25rem 0.5rem',
+          borderRadius: '4px',
+        }}
+      >
+        拖曳平移 · 滾輪縮放 · 點擊省份選擇國家
       </div>
     </div>
   );
 };
 
-export default WorldMap;
+export default ProvinceMap;
