@@ -224,7 +224,7 @@ router.post('/:id/orders', authMiddleware, async (req: any, res) => {
       },
     });
 
-    res.json({ order });
+    res.json({ success: true, order });
   } catch (error: any) {
     console.error('[Games] orders error:', error.message);
     res.status(500).json({ error: error.message });

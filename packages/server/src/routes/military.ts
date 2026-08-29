@@ -291,6 +291,7 @@ router.post('/recruit', authMiddleware, async (req: any, res) => {
     });
 
     res.json({
+      success: true,
       order,
       totalCost: {
         gold: totalCostGold,
@@ -385,7 +386,7 @@ router.post('/divisions', authMiddleware, async (req: any, res) => {
       });
     });
 
-    res.json({ division });
+    res.json({ success: true, division });
   } catch (error: any) {
     console.error('[Military] POST /divisions error:', error.message);
     res.status(500).json({ error: error.message });
@@ -423,7 +424,7 @@ router.patch('/divisions/:id', authMiddleware, async (req: any, res) => {
       data: { name: String(name).trim() },
     });
 
-    res.json({ division: updated });
+    res.json({ success: true, division: updated });
   } catch (error: any) {
     console.error('[Military] PATCH /divisions/:id error:', error.message);
     res.status(500).json({ error: error.message });
