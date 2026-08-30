@@ -23,6 +23,7 @@ export function handleGameSockets(io: SocketIOServer, socket: Socket) {
             status: game.status,
             currentTurn: game.currentTurn,
             nextTurnAt: game.nextTurnAt,
+            scenarioId: game.scenarioId,
           },
           players: game.players.map((p) => ({
             countryId: p.countryId,
