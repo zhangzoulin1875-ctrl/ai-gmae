@@ -51,6 +51,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string; color: string } | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
   const [mapReady, setMapReady] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<string>('');
 
   countriesRef.current = countries;
   onSelectRef.current = onSelectCountry;
@@ -186,6 +187,22 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
           }
           if (tmapModified > 0) console.log(`[WorldMap] Applied territoryMap to ${tmapModified} features`);
           if (povrModified > 0) console.log(`[WorldMap] Applied ${povrModified} province overrides from scenario`);
+
+          // DEBUG: count features whose wwi doesn't match any known country
+          const knownIds = new Set(countriesRef.current.map((c) => c.id));
+          let unmatched = 0;
+          const unmatchedSample: Record<string, number> = {};
+          for (const f of geojson.features) {
+            const w = f.properties?.wwi;
+            if (!knownIds.has(w)) {
+              unmatched++;
+              unmatchedSample[w] = (unmatchedSample[w] || 0) + 1;
+            }
+          }
+          setDebugInfo(
+            `scenario=${scenarioId || 'none'} countries=${countriesRef.current.length} features=${geojson.features.length} unmatched=${unmatched} sample=${JSON.stringify(unmatchedSample)}`
+          );
+          console.log('[WorldMap][DEBUG]', { scenarioId, countryCount: countriesRef.current.length, featureCount: geojson.features.length, unmatched, unmatchedSample });
         }
 
         // GeoJSON source — promoteId lets us use feature-state for hover
@@ -427,6 +444,28 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
       }}
     >
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+
+      {/* DEBUG BADGE — temporary, shows scenario/country/geojson matching stats */}
+      {debugInfo && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 4,
+            left: 4,
+            zIndex: 20,
+            background: 'rgba(0,0,0,0.85)',
+            color: '#0f0',
+            fontFamily: 'monospace',
+            fontSize: '10px',
+            padding: '4px 8px',
+            borderRadius: '4px',
+            maxWidth: '90%',
+            wordBreak: 'break-all',
+          }}
+        >
+          {debugInfo}
+        </div>
+      )}
 
       {/* Map Error Banner */}
       {mapError && (
