@@ -158,7 +158,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ countries, selectedCountryId, onSel
         // internal `_data` for a URL-based geojson source is only populated
         // asynchronously inside its worker — reading it right after
         // addSource() is a race condition and can be non-iterable.)
-        const geojsonRes = await fetch(geojsonUrl);
+        const geojsonRes = await fetch(geojsonUrl, { cache: 'no-store' });
         const geojson = await geojsonRes.json();
 
         // Apply scenario territory mapping:
